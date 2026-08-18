@@ -16,6 +16,34 @@ inhabitedMetadata.Economy = "Industrial";
 ranked = scorer.Rank(new[] { Star("uninhabited", 5), inhabitedMetadata }, new SearchSettings { RadiusLy = 50 });
 Assert(ranked.Count == 1 && ranked[0].Name == "uninhabited", "Colonised-system metadata filter failed");
 
+var scoopable = Star("scoopable", 20); scoopable.PrimaryStarType = "G (White-Yellow) Star";
+var nonScoopable = Star("non-scoopable", 5); nonScoopable.PrimaryStarType = "T Tauri Star";
+ranked = scorer.Rank(new[] { nonScoopable, scoopable }, new SearchSettings {
+    RadiusLy = 50, Weights = new ScoreWeights { Uncolonised = 0, NoPermitRequired = 0, ScoopablePrimary = 100, NearCentre = 0 }
+});
+Assert(ranked[0].Name == "scoopable" && ranked[0].CandidateScore == 100, "Custom scoopable coefficient was not applied");
+
+ranked = scorer.Rank(new[] { Star("near", 5), Star("farther", 40) }, new SearchSettings {
+    RadiusLy = 50, Weights = new ScoreWeights { Uncolonised = 0, NoPermitRequired = 0, ScoopablePrimary = 0, NearCentre = 100 }
+});
+Assert(ranked[0].Name == "near" && ranked[0].CandidateScore > ranked[1].CandidateScore, "Custom distance coefficient was not applied");
+
+var detailed = Star("detailed", 10);
+detailed.BodyDataAvailable = true; detailed.BodyDataCompleteness = 1; detailed.HabitableBodyCount = 2; detailed.TerraformableBodyCount = 2;
+detailed.ResourceBodyCount = 3; detailed.ValuableRingCount = 1; detailed.NearestUsefulArrivalLs = 500;
+ranked = scorer.Rank(new[] { Star("basic", 10), detailed }, new SearchSettings {
+    RadiusLy = 50, MinimumScore = 30, Weights = new ScoreWeights {
+        Uncolonised = 0, NoPermitRequired = 0, ScoopablePrimary = 0, NearCentre = 0,
+        BodySuitability = 40, ResourcePotential = 20, ArrivalConvenience = 10, DataConfidence = 5
+    }
+});
+Assert(ranked.Count == 1 && ranked[0].Name == "detailed", "Detailed scoring or minimum-score cutoff failed");
+Assert(ranked[0].ScoreBreakdown.Contains("body suitability") && ranked[0].ScoreBreakdown.Contains("resources"), "Score breakdown omitted detailed factors");
+
+var hazard = Star("hazard", 10); hazard.PrimaryStarType = "Neutron Star";
+ranked = scorer.Rank(new[] { hazard }, new SearchSettings { RadiusLy = 50, Weights = new ScoreWeights { StellarHazard = -50 } });
+Assert(ranked[0].ScoreBreakdown.Contains("stellar hazard"), "Stellar hazard penalty was not applied");
+
 var origin = Star("origin", 0);
 var candidates = new List<StarSystem> { Star("east", 10), Star("north", 0, 10), Star("far", 20, 10) };
 var route = new RoutePlanner().Plan(origin, candidates, 30);

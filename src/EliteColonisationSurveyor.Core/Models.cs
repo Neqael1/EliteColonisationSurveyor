@@ -43,6 +43,16 @@ namespace EliteColonisationSurveyor.Core
         public string Security { get; set; }
         public string PrimaryStarType { get; set; }
         public double CandidateScore { get; set; }
+        public string ScoreBreakdown { get; set; }
+        public bool BodyDataAvailable { get; set; }
+        public double BodyDataCompleteness { get; set; }
+        public int KnownBodyCount { get; set; }
+        public int HabitableBodyCount { get; set; }
+        public int TerraformableBodyCount { get; set; }
+        public int LandableBodyCount { get; set; }
+        public int ResourceBodyCount { get; set; }
+        public int ValuableRingCount { get; set; }
+        public double NearestUsefulArrivalLs { get; set; }
 
         public bool IsColonised => Population > 0
             || !string.IsNullOrWhiteSpace(Allegiance)
@@ -66,5 +76,22 @@ namespace EliteColonisationSurveyor.Core
         public bool ExcludePermitLocked { get; set; } = true;
         public bool PreferScoopableStars { get; set; } = true;
         public SearchPattern Pattern { get; set; } = SearchPattern.Balanced;
+        public ScoreWeights Weights { get; set; } = new ScoreWeights();
+        public double? MinimumScore { get; set; }
+    }
+
+    public sealed class ScoreWeights
+    {
+        public double Uncolonised { get; set; } = 60;
+        public double Colonised { get; set; } = 5;
+        public double NoPermitRequired { get; set; } = 20;
+        public double PermitRequired { get; set; } = -100;
+        public double ScoopablePrimary { get; set; } = 15;
+        public double NearCentre { get; set; } = 5;
+        public double BodySuitability { get; set; } = 25;
+        public double ResourcePotential { get; set; } = 15;
+        public double ArrivalConvenience { get; set; } = 10;
+        public double StellarHazard { get; set; } = -25;
+        public double DataConfidence { get; set; } = 5;
     }
 }

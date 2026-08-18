@@ -23,11 +23,25 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly ComboBox searchPattern = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 145 };
         private readonly CheckBox unpopulated = new CheckBox { Text = "Exclude colonised", Checked = true, AutoSize = true };
         private readonly CheckBox noPermit = new CheckBox { Text = "Exclude permit-locked", Checked = true, AutoSize = true };
+        private readonly CheckBox useMinimumScore = new CheckBox { Text = "Minimum score", AutoSize = true };
+        private readonly NumericUpDown minimumScore = new NumericUpDown { Minimum = -1000, Maximum = 1000, Value = 75, DecimalPlaces = 1, Width = 70, Enabled = false };
         private readonly Button generate = new Button { Text = "Generate route", AutoSize = true };
         private readonly Button push = new Button { Text = "Send to Expedition", AutoSize = true, Enabled = false };
         private readonly Label status = new Label { AutoSize = true, Text = "Waiting for current system…" };
         private readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = false, AllowUserToAddRows = false };
         private readonly RouteMapControl routeMap = new RouteMapControl { Dock = DockStyle.Fill };
+        private readonly NumericUpDown uncolonisedWeight = Weight(60);
+        private readonly NumericUpDown colonisedWeight = Weight(5);
+        private readonly NumericUpDown noPermitWeight = Weight(20);
+        private readonly NumericUpDown permitWeight = Weight(-100);
+        private readonly NumericUpDown scoopableWeight = Weight(15);
+        private readonly NumericUpDown distanceWeight = Weight(5);
+        private readonly NumericUpDown suitabilityWeight = Weight(25);
+        private readonly NumericUpDown resourcesWeight = Weight(15);
+        private readonly NumericUpDown arrivalWeight = Weight(10);
+        private readonly NumericUpDown hazardWeight = Weight(-25);
+        private readonly NumericUpDown confidenceWeight = Weight(5);
+        private readonly Label scoreFormula = new Label { AutoSize = true, MaximumSize = new Size(700, 0) };
         private readonly EdsmClient edsm = new EdsmClient();
         private readonly CandidateScorer scorer = new CandidateScorer();
         private readonly RoutePlanner planner = new RoutePlanner();
@@ -49,8 +63,9 @@ namespace EliteColonisationSurveyor.Plugin
                 new Label { Text = "Radius (ly)", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, radius,
                 new Label { Text = "Max systems", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, maximum,
                 new Label { Text = "Pattern", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, searchPattern,
-                unpopulated, noPermit, generate, push
+                unpopulated, noPermit, useMinimumScore, minimumScore, generate, push
             });
+            useMinimumScore.CheckedChanged += (_, __) => minimumScore.Enabled = useMinimumScore.Checked;
             var details = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6) };
             details.Controls.Add(ship);
             details.Controls.Add(new Label { Text = "   " });
@@ -62,6 +77,7 @@ namespace EliteColonisationSurveyor.Plugin
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "From centre", Width = 90 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Score", Width = 65 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Primary", Width = 90 });
+            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Score breakdown", Width = 420 });
             var tabs = new TabControl { Dock = DockStyle.Fill };
             var routePage = new TabPage("Route list");
             routePage.Controls.Add(grid);
@@ -79,8 +95,10 @@ namespace EliteColonisationSurveyor.Plugin
             mapTools.Controls.Add(new Label { Text = "Drag to rotate · Wheel to zoom", AutoSize = true, Padding = new Padding(8, 6, 0, 0) });
             mapPage.Controls.Add(routeMap);
             mapPage.Controls.Add(mapTools);
+            var scoringPage = BuildScoringPage();
             tabs.TabPages.Add(routePage);
             tabs.TabPages.Add(mapPage);
+            tabs.TabPages.Add(scoringPage);
             Controls.Add(tabs);
             Controls.Add(details);
             Controls.Add(inputs);
@@ -101,6 +119,9 @@ namespace EliteColonisationSurveyor.Plugin
             radius.Value = Clamp(callbacks.GetDouble?.Invoke("radius", 50) ?? 50, radius.Minimum, radius.Maximum);
             maximum.Value = Clamp(callbacks.GetInt?.Invoke("maximum", 100) ?? 100, maximum.Minimum, maximum.Maximum);
             searchPattern.SelectedIndex = Math.Max(0, Math.Min(searchPattern.Items.Count - 1, callbacks.GetInt?.Invoke("pattern", 0) ?? 0));
+            useMinimumScore.Checked = (callbacks.GetInt?.Invoke("minimum_score_enabled", 0) ?? 0) != 0;
+            minimumScore.Value = Clamp(callbacks.GetDouble?.Invoke("minimum_score", 75) ?? 75, minimumScore.Minimum, minimumScore.Maximum);
+            LoadScoreWeights(callbacks);
             CurrentLocationReceived += OnLocationChanged;
 
             EDDDLLIF.JournalEntry cached;
@@ -136,16 +157,28 @@ namespace EliteColonisationSurveyor.Plugin
                 var settings = new SearchSettings {
                     RadiusLy = (double)radius.Value, MaximumSystems = (int)maximum.Value,
                     ExcludeColonised = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked,
-                    Pattern = (SearchPattern)searchPattern.SelectedIndex
+                    Pattern = (SearchPattern)searchPattern.SelectedIndex, Weights = GetScoreWeights(),
+                    MinimumScore = useMinimumScore.Checked ? (double?)minimumScore.Value : null
                 };
                 var systems = await edsm.GetSphereAsync(origin.Name, settings.RadiusLy, cancellation.Token);
-                var ranked = scorer.Rank(systems, settings);
+                var preliminarySettings = new SearchSettings {
+                    RadiusLy = settings.RadiusLy, MaximumSystems = settings.MaximumSystems,
+                    ExcludeColonised = settings.ExcludeColonised, ExcludePermitLocked = settings.ExcludePermitLocked,
+                    Pattern = settings.Pattern, Weights = settings.Weights
+                };
+                var preliminary = scorer.Rank(systems, preliminarySettings);
+                status.Text = "Loading body details for " + preliminary.Count + " candidates from EDSM…";
+                await edsm.EnrichBodiesAsync(preliminary, cancellation.Token);
+                var ranked = scorer.Rank(preliminary, settings);
                 route = planner.Plan(origin, ranked, currentShip.JumpRange, settings.Pattern);
                 RenderRoute();
                 routeMap.SetRoute(route);
                 panelCallbacks.SaveDouble?.Invoke("radius", settings.RadiusLy);
                 panelCallbacks.SaveInt?.Invoke("maximum", settings.MaximumSystems);
                 panelCallbacks.SaveInt?.Invoke("pattern", searchPattern.SelectedIndex);
+                panelCallbacks.SaveInt?.Invoke("minimum_score_enabled", useMinimumScore.Checked ? 1 : 0);
+                panelCallbacks.SaveDouble?.Invoke("minimum_score", (double)minimumScore.Value);
+                SaveScoreWeights();
                 var skipped = ranked.Count - (route.Count - 1);
                 status.Text = (route.Count - 1) + " candidates, " + RoutePlanner.TotalDistance(route).ToString("0.0") + " ly route"
                             + (skipped > 0 ? " — " + skipped + " unreachable" : "");
@@ -168,7 +201,7 @@ namespace EliteColonisationSurveyor.Plugin
                 var system = route[i];
                 grid.Rows.Add(i, system.Name,
                     route[i - 1].Coordinates.DistanceTo(system.Coordinates).ToString("0.00"),
-                    system.DistanceFromCentre.ToString("0.00"), system.CandidateScore.ToString("0.0"), system.PrimaryStarType ?? "?");
+                    system.DistanceFromCentre.ToString("0.00"), system.CandidateScore.ToString("0.0"), system.PrimaryStarType ?? "?", system.ScoreBreakdown);
             }
         }
 
@@ -267,6 +300,138 @@ namespace EliteColonisationSurveyor.Plugin
         private static string KnownValue(string value)
         {
             return string.IsNullOrWhiteSpace(value) || value.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ? null : value;
+        }
+
+        private TabPage BuildScoringPage()
+        {
+            var page = new TabPage("Scoring") { AutoScroll = true };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(12), ColumnCount = 3 };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            var heading = new Label {
+                AutoSize = true, MaximumSize = new Size(760, 0),
+                Text = "Higher scores rank earlier. Eligibility filters are applied before scoring, so excluded colonised or permit-locked systems will not appear regardless of their coefficients. Coefficients may be positive or negative."
+            };
+            layout.Controls.Add(heading, 0, 0);
+            layout.SetColumnSpan(heading, 3);
+            AddWeightRow(layout, 1, "Uncolonised system", uncolonisedWeight, "Applied when no population or habitation metadata is reported.");
+            AddWeightRow(layout, 2, "Colonised system", colonisedWeight, "Applied when population or habitation metadata is present; normally removed by Exclude colonised.");
+            AddWeightRow(layout, 3, "No permit required", noPermitWeight, "Applied to systems that can be entered without a permit.");
+            AddWeightRow(layout, 4, "Permit required", permitWeight, "Applied to permit-locked systems; normally removed by Exclude permit-locked.");
+            AddWeightRow(layout, 5, "Scoopable primary", scoopableWeight, "Applied to O, B, A, F, G, K and M primary stars.");
+            AddWeightRow(layout, 6, "Near-centre distance", distanceWeight, "Full value at the centre, fading linearly to zero at the search radius.");
+            AddWeightRow(layout, 7, "Body suitability", suitabilityWeight, "Normalised from habitable, terraformable and landable body counts.");
+            AddWeightRow(layout, 8, "Resource potential", resourcesWeight, "Normalised from metal-rich worlds and major or pristine rings.");
+            AddWeightRow(layout, 9, "Arrival convenience", arrivalWeight, "Rewards useful bodies close to the arrival star; reaches zero at 10,000 ls.");
+            AddWeightRow(layout, 10, "Stellar hazard", hazardWeight, "Applied to neutron stars, white dwarfs and black holes.");
+            AddWeightRow(layout, 11, "Data confidence", confidenceWeight, "Scaled by EDSM body-data completeness; unknown data is never treated as zero.");
+            var presets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, Margin = new Padding(3, 12, 3, 3) };
+            presets.Items.AddRange(new object[] { "Balanced colony", "Resource extraction", "Scientific outpost", "Logistics hub", "Remote expansion" });
+            presets.SelectedIndex = 0;
+            var applyPreset = new Button { Text = "Apply preset", AutoSize = true, Margin = new Padding(3, 12, 3, 3) };
+            applyPreset.Click += (_, __) => ApplyPreset(presets.SelectedIndex);
+            layout.Controls.Add(presets, 0, 12);
+            layout.Controls.Add(applyPreset, 1, 12);
+            var reset = new Button { Text = "Restore defaults", AutoSize = true, Margin = new Padding(3, 12, 3, 3) };
+            reset.Click += (_, __) => ResetScoreWeights();
+            layout.Controls.Add(reset, 0, 13);
+            layout.Controls.Add(scoreFormula, 0, 14);
+            layout.SetColumnSpan(scoreFormula, 3);
+            foreach (var control in AllWeightControls())
+                control.ValueChanged += (_, __) => UpdateScoreFormula();
+            UpdateScoreFormula();
+            page.Controls.Add(layout);
+            return page;
+        }
+
+        private static void AddWeightRow(TableLayoutPanel layout, int row, string name, NumericUpDown value, string explanation)
+        {
+            layout.Controls.Add(new Label { Text = name, AutoSize = true, Margin = new Padding(3, 8, 12, 3) }, 0, row);
+            layout.Controls.Add(value, 1, row);
+            layout.Controls.Add(new Label { Text = explanation, AutoSize = true, MaximumSize = new Size(520, 0), Margin = new Padding(12, 8, 3, 3) }, 2, row);
+        }
+
+        private static NumericUpDown Weight(decimal value) => new NumericUpDown {
+            Minimum = -500, Maximum = 500, Value = value, DecimalPlaces = 1, Increment = 1, Width = 90
+        };
+
+        private ScoreWeights GetScoreWeights() => new ScoreWeights {
+            Uncolonised = (double)uncolonisedWeight.Value,
+            Colonised = (double)colonisedWeight.Value,
+            NoPermitRequired = (double)noPermitWeight.Value,
+            PermitRequired = (double)permitWeight.Value,
+            ScoopablePrimary = (double)scoopableWeight.Value,
+            NearCentre = (double)distanceWeight.Value
+            , BodySuitability = (double)suitabilityWeight.Value
+            , ResourcePotential = (double)resourcesWeight.Value
+            , ArrivalConvenience = (double)arrivalWeight.Value
+            , StellarHazard = (double)hazardWeight.Value
+            , DataConfidence = (double)confidenceWeight.Value
+        };
+
+        private void LoadScoreWeights(EDDDLLIF.EDDPanelCallbacks callbacks)
+        {
+            uncolonisedWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_uncolonised", 60) ?? 60, -500, 500);
+            colonisedWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_colonised", 5) ?? 5, -500, 500);
+            noPermitWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_no_permit", 20) ?? 20, -500, 500);
+            permitWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_permit", -100) ?? -100, -500, 500);
+            scoopableWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_scoopable", 15) ?? 15, -500, 500);
+            distanceWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_distance", 5) ?? 5, -500, 500);
+            suitabilityWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_suitability", 25) ?? 25, -500, 500);
+            resourcesWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_resources", 15) ?? 15, -500, 500);
+            arrivalWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_arrival", 10) ?? 10, -500, 500);
+            hazardWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_hazard", -25) ?? -25, -500, 500);
+            confidenceWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_confidence", 5) ?? 5, -500, 500);
+            UpdateScoreFormula();
+        }
+
+        private void SaveScoreWeights()
+        {
+            var weights = GetScoreWeights();
+            panelCallbacks.SaveDouble?.Invoke("score_uncolonised", weights.Uncolonised);
+            panelCallbacks.SaveDouble?.Invoke("score_colonised", weights.Colonised);
+            panelCallbacks.SaveDouble?.Invoke("score_no_permit", weights.NoPermitRequired);
+            panelCallbacks.SaveDouble?.Invoke("score_permit", weights.PermitRequired);
+            panelCallbacks.SaveDouble?.Invoke("score_scoopable", weights.ScoopablePrimary);
+            panelCallbacks.SaveDouble?.Invoke("score_distance", weights.NearCentre);
+            panelCallbacks.SaveDouble?.Invoke("score_suitability", weights.BodySuitability);
+            panelCallbacks.SaveDouble?.Invoke("score_resources", weights.ResourcePotential);
+            panelCallbacks.SaveDouble?.Invoke("score_arrival", weights.ArrivalConvenience);
+            panelCallbacks.SaveDouble?.Invoke("score_hazard", weights.StellarHazard);
+            panelCallbacks.SaveDouble?.Invoke("score_confidence", weights.DataConfidence);
+        }
+
+        private void ResetScoreWeights()
+        {
+            uncolonisedWeight.Value = 60; colonisedWeight.Value = 5;
+            noPermitWeight.Value = 20; permitWeight.Value = -100;
+            scoopableWeight.Value = 15; distanceWeight.Value = 5;
+            suitabilityWeight.Value = 25; resourcesWeight.Value = 15;
+            arrivalWeight.Value = 10; hazardWeight.Value = -25; confidenceWeight.Value = 5;
+        }
+
+        private NumericUpDown[] AllWeightControls() => new[] {
+            uncolonisedWeight, colonisedWeight, noPermitWeight, permitWeight, scoopableWeight,
+            distanceWeight, suitabilityWeight, resourcesWeight, arrivalWeight, hazardWeight, confidenceWeight
+        };
+
+        private void ApplyPreset(int preset)
+        {
+            ResetScoreWeights();
+            if (preset == 1) { suitabilityWeight.Value = 10; resourcesWeight.Value = 60; arrivalWeight.Value = 15; }
+            else if (preset == 2) { suitabilityWeight.Value = 55; resourcesWeight.Value = 10; confidenceWeight.Value = 20; }
+            else if (preset == 3) { distanceWeight.Value = 25; arrivalWeight.Value = 45; scoopableWeight.Value = 25; hazardWeight.Value = -50; }
+            else if (preset == 4) { distanceWeight.Value = -25; suitabilityWeight.Value = 30; resourcesWeight.Value = 25; }
+        }
+
+        private void UpdateScoreFormula()
+        {
+            scoreFormula.Text = "Score = habitation coefficient + permit coefficient"
+                + " + scoopable coefficient (when applicable)"
+                + " + distance, suitability, resource, arrival, hazard and data-confidence terms. Detailed factors are normalised to 0–1.\n"
+                + "Current uncolonised, no-permit, scoopable centre example: "
+                + (uncolonisedWeight.Value + noPermitWeight.Value + scoopableWeight.Value + distanceWeight.Value).ToString("0.0");
         }
 
         private static decimal Clamp(double value, decimal min, decimal max) => Math.Max(min, Math.Min(max, (decimal)value));

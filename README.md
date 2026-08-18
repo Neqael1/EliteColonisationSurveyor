@@ -16,6 +16,13 @@ commander's current star system. The first MVP:
 - visualises the route in a rotatable, zoomable 3D galactic map with view presets;
 - offers balanced, shortest-route, shell, spiral, octant, score-first, boundary
   and jump-safe search patterns;
+- includes a Scoring tab that explains the ranking formula and lets each profile
+  customise the habitation, permit, scoopability and distance coefficients;
+- can enrich shortlisted systems with EDSM body data and score habitable,
+  terraformable and landable bodies, resource potential, arrival convenience,
+  stellar hazards and data confidence;
+- provides scoring presets, per-system score breakdowns and an optional minimum
+  score cutoff before candidates are admitted to the route;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier
