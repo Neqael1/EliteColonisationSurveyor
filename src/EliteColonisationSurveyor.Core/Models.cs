@@ -25,8 +25,18 @@ namespace EliteColonisationSurveyor.Core
         public Coordinates Coordinates { get; set; }
         public bool RequiresPermit { get; set; }
         public long Population { get; set; }
+        public string Allegiance { get; set; }
+        public string Government { get; set; }
+        public string Economy { get; set; }
+        public string Security { get; set; }
         public string PrimaryStarType { get; set; }
         public double CandidateScore { get; set; }
+
+        public bool IsColonised => Population > 0
+            || !string.IsNullOrWhiteSpace(Allegiance)
+            || !string.IsNullOrWhiteSpace(Government)
+            || !string.IsNullOrWhiteSpace(Economy)
+            || !string.IsNullOrWhiteSpace(Security);
     }
 
     public sealed class ShipProfile
@@ -40,7 +50,7 @@ namespace EliteColonisationSurveyor.Core
     {
         public double RadiusLy { get; set; } = 50;
         public int MaximumSystems { get; set; } = 100;
-        public bool ExcludePopulated { get; set; } = true;
+        public bool ExcludeColonised { get; set; } = true;
         public bool ExcludePermitLocked { get; set; } = true;
         public bool PreferScoopableStars { get; set; } = true;
     }

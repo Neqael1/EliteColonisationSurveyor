@@ -20,7 +20,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly Label ship = new Label { AutoSize = true, Text = "Ship: waiting for EDDiscovery" };
         private readonly NumericUpDown radius = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 50, DecimalPlaces = 0, Width = 65 };
         private readonly NumericUpDown maximum = new NumericUpDown { Minimum = 1, Maximum = 500, Value = 100, Width = 65 };
-        private readonly CheckBox unpopulated = new CheckBox { Text = "Unpopulated only", Checked = true, AutoSize = true };
+        private readonly CheckBox unpopulated = new CheckBox { Text = "Exclude colonised", Checked = true, AutoSize = true };
         private readonly CheckBox noPermit = new CheckBox { Text = "Exclude permit-locked", Checked = true, AutoSize = true };
         private readonly Button generate = new Button { Text = "Generate route", AutoSize = true };
         private readonly Button push = new Button { Text = "Send to Expedition", AutoSize = true, Enabled = false };
@@ -127,7 +127,7 @@ namespace EliteColonisationSurveyor.Plugin
             {
                 var settings = new SearchSettings {
                     RadiusLy = (double)radius.Value, MaximumSystems = (int)maximum.Value,
-                    ExcludePopulated = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked
+                    ExcludeColonised = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked
                 };
                 var systems = await edsm.GetSphereAsync(origin.Name, settings.RadiusLy, cancellation.Token);
                 var ranked = scorer.Rank(systems, settings);

@@ -6,6 +6,7 @@ commander's current star system. The first MVP:
 - receives the current system, coordinates and ship through EDDiscovery;
 - reads the current ship loadout and detects its jump range where available;
 - fetches known systems inside a user-selected radius from EDSM;
+- removes systems with population or habitation metadata before ranking candidates;
 - ranks likely colonisation survey candidates with explicit, editable weights;
 - orders the candidates with nearest-neighbour routing and a 2-opt improvement;
 - visualises the route in a rotatable, zoomable 3D galactic map with view presets;
