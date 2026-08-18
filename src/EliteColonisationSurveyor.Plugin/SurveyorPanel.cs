@@ -111,7 +111,7 @@ namespace EliteColonisationSurveyor.Plugin
             catch (Exception ex)
             {
                 status.Text = "Search failed: " + ex.Message;
-                SurveyorMainDLL.Callbacks.WriteToLogHighlight?.Invoke("Colonisation Surveyor: " + ex);
+                SurveyorEDDClass.Callbacks.WriteToLogHighlight?.Invoke("Colonisation Surveyor: " + ex);
             }
             finally { generate.Enabled = true; }
         }
@@ -140,7 +140,7 @@ namespace EliteColonisationSurveyor.Plugin
             var profile = new ShipProfile { Name = entry.shipname, Type = entry.shiptype };
             try
             {
-                var raw = SurveyorMainDLL.Callbacks.GetShipLoadout?.Invoke("");
+                var raw = SurveyorEDDClass.Callbacks.GetShipLoadout?.Invoke("");
                 if (!string.IsNullOrWhiteSpace(raw))
                 {
                     var value = new JavaScriptSerializer().DeserializeObject(raw);

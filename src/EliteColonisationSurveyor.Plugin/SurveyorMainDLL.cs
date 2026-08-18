@@ -4,7 +4,7 @@ using EDDDLLInterfaces;
 
 namespace EliteColonisationSurveyor.Plugin
 {
-    public sealed class SurveyorMainDLL
+    public sealed class SurveyorEDDClass
     {
         internal static EDDDLLIF.EDDCallBacks Callbacks;
 
@@ -22,7 +22,7 @@ namespace EliteColonisationSurveyor.Plugin
                 "Optimised colonisation candidate survey routes",
                 null);
             callbacks.WriteToLog?.Invoke("Colonisation Surveyor extension loaded");
-            return "0.1.0";
+            return "0.1.1";
         }
 
         public void EDDRefresh(string commander, EDDDLLIF.JournalEntry latest) => SurveyorPanel.PublishLocation(latest);

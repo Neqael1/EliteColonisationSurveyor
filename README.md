@@ -22,7 +22,8 @@ Developments or the EDDiscovery team.
 ## Install the prebuilt plugin
 
 1. Open the [latest release](https://github.com/Neqael1/EliteColonisationSurveyor/releases/latest).
-2. Download `EliteColonisationSurveyor-0.1.0.zip` from the release's **Assets** section.
+2. Download the `EliteColonisationSurveyor-<version>.zip` file from the
+   release's **Assets** section.
 3. Close EDDiscovery.
 4. Extract all three DLL files from the ZIP into EDDiscovery's extension DLL
    directory. This is normally `%LOCALAPPDATA%\EDDiscovery\DLL`; EDDiscovery's
