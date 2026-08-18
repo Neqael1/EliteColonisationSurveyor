@@ -8,14 +8,24 @@ using EliteColonisationSurveyor.Core;
 
 namespace EliteColonisationSurveyor.Plugin
 {
-    internal enum RouteProjection { TopXZ, FrontXY, SideZY }
-
     internal sealed class RouteMapControl : Control
     {
+        private sealed class ProjectedPoint
+        {
+            public PointF Screen;
+            public double Depth;
+            public StarSystem System;
+            public int Index;
+        }
+
         private readonly ToolTip toolTip = new ToolTip();
         private IReadOnlyList<StarSystem> route = new List<StarSystem>();
-        private readonly List<Tuple<RectangleF, StarSystem, int>> hitTargets = new List<Tuple<RectangleF, StarSystem, int>>();
-        private RouteProjection projection;
+        private readonly List<ProjectedPoint> hitTargets = new List<ProjectedPoint>();
+        private double yaw = -0.65;
+        private double pitch = 0.55;
+        private double zoom = 1;
+        private bool dragging;
+        private Point dragStart;
         private string lastTip;
 
         public RouteMapControl()
@@ -24,19 +34,32 @@ namespace EliteColonisationSurveyor.Plugin
             BackColor = Color.FromArgb(10, 16, 25);
             ForeColor = Color.Gainsboro;
             Resize += (_, __) => Invalidate();
-            MouseMove += ShowPointDetails;
-            MouseLeave += (_, __) => { toolTip.Hide(this); lastTip = null; };
-        }
-
-        public RouteProjection Projection
-        {
-            get => projection;
-            set { projection = value; Invalidate(); }
+            MouseDown += BeginRotation;
+            MouseMove += RotateOrShowDetails;
+            MouseUp += (_, __) => { dragging = false; Cursor = Cursors.Default; };
+            MouseLeave += (_, __) => { dragging = false; Cursor = Cursors.Default; toolTip.Hide(this); lastTip = null; };
+            MouseWheel += ZoomView;
         }
 
         public void SetRoute(IReadOnlyList<StarSystem> value)
         {
             route = value ?? new List<StarSystem>();
+            Invalidate();
+        }
+
+        public void ResetView()
+        {
+            yaw = -0.65;
+            pitch = 0.55;
+            zoom = 1;
+            Invalidate();
+        }
+
+        public void SetViewPreset(int preset)
+        {
+            if (preset == 1) { yaw = 0; pitch = 0; }
+            else if (preset == 2) { yaw = Math.PI / 2; pitch = 0; }
+            else { yaw = 0; pitch = Math.PI / 2; }
             Invalidate();
         }
 
@@ -46,111 +69,122 @@ namespace EliteColonisationSurveyor.Plugin
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             hitTargets.Clear();
 
-            var plot = new RectangleF(58, 24, Math.Max(10, ClientSize.Width - 82), Math.Max(10, ClientSize.Height - 72));
+            var plot = new RectangleF(24, 24, Math.Max(10, ClientSize.Width - 48), Math.Max(10, ClientSize.Height - 48));
             using (var frame = new Pen(Color.FromArgb(75, 128, 160))) e.Graphics.DrawRectangle(frame, plot.X, plot.Y, plot.Width, plot.Height);
             if (route.Count == 0)
             {
                 using (var brush = new SolidBrush(Color.FromArgb(170, ForeColor)))
-                    e.Graphics.DrawString("Generate a route to display its map.", Font, brush, plot.X + 16, plot.Y + 16);
+                    e.Graphics.DrawString("Generate a route to display its 3D map.", Font, brush, plot.X + 16, plot.Y + 16);
                 return;
             }
 
-            var points = route.Select(Project).ToList();
-            var minX = points.Min(p => p.X); var maxX = points.Max(p => p.X);
-            var minY = points.Min(p => p.Y); var maxY = points.Max(p => p.Y);
-            PadDomain(ref minX, ref maxX); PadDomain(ref minY, ref maxY);
-            Func<PointF, PointF> screen = p => new PointF(
-                plot.Left + (float)((p.X - minX) / (maxX - minX) * plot.Width),
-                plot.Bottom - (float)((p.Y - minY) / (maxY - minY) * plot.Height));
+            var centre = new Vector3(
+                route.Average(x => x.Coordinates.X),
+                route.Average(x => x.Coordinates.Y),
+                route.Average(x => x.Coordinates.Z));
+            var rotated = route.Select(x => Rotate(ToVector(x.Coordinates) - centre)).ToList();
+            var extent = rotated.SelectMany(v => new[] { Math.Abs(v.X), Math.Abs(v.Y) }).DefaultIfEmpty(1).Max();
+            if (extent < 0.001) extent = 1;
+            var scale = Math.Min(plot.Width, plot.Height) * 0.42 / extent * zoom;
+            var screenCentre = new PointF(plot.Left + plot.Width / 2, plot.Top + plot.Height / 2);
 
-            DrawGrid(e.Graphics, plot, minX, maxX, minY, maxY);
-            var screenPoints = points.Select(screen).ToArray();
-            using (var pathPen = new Pen(Color.FromArgb(65, 190, 255), 2f))
+            DrawReferenceAxes(e.Graphics, screenCentre, scale, extent);
+
+            var projected = rotated.Select((v, i) => new ProjectedPoint {
+                Screen = new PointF(screenCentre.X + (float)(v.X * scale), screenCentre.Y - (float)(v.Y * scale)),
+                Depth = v.Z, System = route[i], Index = i
+            }).ToList();
+
+            using (var routePen = new Pen(Color.FromArgb(65, 190, 255), 2f))
             {
-                pathPen.CustomEndCap = new AdjustableArrowCap(3, 5);
-                for (var i = 1; i < screenPoints.Length; i++) e.Graphics.DrawLine(pathPen, screenPoints[i - 1], screenPoints[i]);
+                routePen.CustomEndCap = new AdjustableArrowCap(3, 5);
+                for (var i = 1; i < projected.Count; i++) e.Graphics.DrawLine(routePen, projected[i - 1].Screen, projected[i].Screen);
             }
 
-            for (var i = 0; i < screenPoints.Length; i++)
+            foreach (var point in projected.OrderBy(x => x.Depth))
             {
-                var radius = i == 0 ? 7f : 5f;
-                var rect = new RectangleF(screenPoints[i].X - radius, screenPoints[i].Y - radius, radius * 2, radius * 2);
-                using (var brush = new SolidBrush(i == 0 ? Color.Gold : ScoreColour(route[i].CandidateScore))) e.Graphics.FillEllipse(brush, rect);
+                var perspective = (float)Math.Max(0.7, Math.Min(1.3, 1 + point.Depth / (extent * 8)));
+                var radius = (point.Index == 0 ? 7f : 5f) * perspective;
+                var rect = new RectangleF(point.Screen.X - radius, point.Screen.Y - radius, radius * 2, radius * 2);
+                using (var brush = new SolidBrush(point.Index == 0 ? Color.Gold : ScoreColour(point.System.CandidateScore))) e.Graphics.FillEllipse(brush, rect);
                 using (var outline = new Pen(Color.White, 1f)) e.Graphics.DrawEllipse(outline, rect);
-                hitTargets.Add(Tuple.Create(RectangleF.Inflate(rect, 8, 8), route[i], i));
-                if (i == 0 || i == screenPoints.Length - 1)
-                    using (var brush = new SolidBrush(ForeColor)) e.Graphics.DrawString(i == 0 ? "Centre" : i.ToString(), Font, brush, screenPoints[i].X + 7, screenPoints[i].Y - 15);
+                hitTargets.Add(new ProjectedPoint { Screen = point.Screen, Depth = point.Depth, System = point.System, Index = point.Index });
+                if (point.Index == 0 || point.Index == projected.Count - 1)
+                    using (var brush = new SolidBrush(ForeColor)) e.Graphics.DrawString(point.Index == 0 ? "Centre" : point.Index.ToString(), Font, brush, point.Screen.X + 7, point.Screen.Y - 15);
             }
-
-            DrawAxisLabels(e.Graphics, plot, minX, maxX, minY, maxY);
         }
 
-        private void DrawGrid(Graphics graphics, RectangleF plot, double minX, double maxX, double minY, double maxY)
+        private void DrawReferenceAxes(Graphics graphics, PointF origin, double scale, double extent)
         {
-            using (var pen = new Pen(Color.FromArgb(30, 128, 160)))
-            using (var brush = new SolidBrush(Color.FromArgb(165, ForeColor)))
+            var length = extent * 0.65;
+            DrawAxis(graphics, origin, Rotate(new Vector3(length, 0, 0)), scale, "X", Color.FromArgb(230, 100, 100));
+            DrawAxis(graphics, origin, Rotate(new Vector3(0, length, 0)), scale, "Y", Color.FromArgb(100, 220, 130));
+            DrawAxis(graphics, origin, Rotate(new Vector3(0, 0, length)), scale, "Z", Color.FromArgb(100, 160, 255));
+        }
+
+        private static void DrawAxis(Graphics graphics, PointF origin, Vector3 axis, double scale, string label, Color color)
+        {
+            var end = new PointF(origin.X + (float)(axis.X * scale), origin.Y - (float)(axis.Y * scale));
+            using (var pen = new Pen(Color.FromArgb(150, color), 1.5f)) graphics.DrawLine(pen, origin, end);
+            using (var brush = new SolidBrush(color)) graphics.DrawString(label, SystemFonts.DefaultFont, brush, end.X + 3, end.Y + 3);
+        }
+
+        private void BeginRotation(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            dragging = true;
+            dragStart = e.Location;
+            Cursor = Cursors.SizeAll;
+            toolTip.Hide(this);
+        }
+
+        private void RotateOrShowDetails(object sender, MouseEventArgs e)
+        {
+            if (dragging)
             {
-                for (var i = 0; i <= 4; i++)
-                {
-                    var x = plot.Left + plot.Width * i / 4f;
-                    var y = plot.Bottom - plot.Height * i / 4f;
-                    graphics.DrawLine(pen, x, plot.Top, x, plot.Bottom);
-                    graphics.DrawLine(pen, plot.Left, y, plot.Right, y);
-                    graphics.DrawString((minX + (maxX - minX) * i / 4).ToString("0.#"), Font, brush, x - 12, plot.Bottom + 5);
-                    graphics.DrawString((minY + (maxY - minY) * i / 4).ToString("0.#"), Font, brush, 4, y - 7);
-                }
+                yaw += (e.X - dragStart.X) * 0.012;
+                pitch = Math.Max(-Math.PI / 2, Math.Min(Math.PI / 2, pitch + (e.Y - dragStart.Y) * 0.012));
+                dragStart = e.Location;
+                Invalidate();
+                return;
             }
-        }
 
-        private void DrawAxisLabels(Graphics graphics, RectangleF plot, double minX, double maxX, double minY, double maxY)
-        {
-            var labels = projection == RouteProjection.TopXZ ? new[] { "Galactic X (ly)", "Galactic Z (ly)" }
-                       : projection == RouteProjection.FrontXY ? new[] { "Galactic X (ly)", "Galactic Y (ly)" }
-                       : new[] { "Galactic Z (ly)", "Galactic Y (ly)" };
-            using (var brush = new SolidBrush(ForeColor))
-            {
-                graphics.DrawString(labels[0], Font, brush, plot.Left + plot.Width / 2 - 40, ClientSize.Height - 20);
-                var state = graphics.Save();
-                graphics.TranslateTransform(14, plot.Top + plot.Height / 2 + 40);
-                graphics.RotateTransform(-90);
-                graphics.DrawString(labels[1], Font, brush, 0, 0);
-                graphics.Restore(state);
-            }
-        }
-
-        private PointF Project(StarSystem system)
-        {
-            var c = system.Coordinates;
-            if (projection == RouteProjection.FrontXY) return new PointF((float)c.X, (float)c.Y);
-            if (projection == RouteProjection.SideZY) return new PointF((float)c.Z, (float)c.Y);
-            return new PointF((float)c.X, (float)c.Z);
-        }
-
-        private void ShowPointDetails(object sender, MouseEventArgs e)
-        {
-            var hit = hitTargets.LastOrDefault(x => x.Item1.Contains(e.Location));
+            var hit = hitTargets.OrderByDescending(x => x.Depth)
+                .FirstOrDefault(x => DistanceSquared(x.Screen, e.Location) <= 14 * 14);
             if (hit == null) { toolTip.Hide(this); lastTip = null; return; }
-            var leg = hit.Item3 == 0 ? 0 : route[hit.Item3 - 1].Coordinates.DistanceTo(hit.Item2.Coordinates);
-            var text = (hit.Item3 == 0 ? "Centre: " : "Stop " + hit.Item3 + ": ") + hit.Item2.Name
+            var leg = hit.Index == 0 ? 0 : route[hit.Index - 1].Coordinates.DistanceTo(hit.System.Coordinates);
+            var text = (hit.Index == 0 ? "Centre: " : "Stop " + hit.Index + ": ") + hit.System.Name
                      + "\nLeg: " + leg.ToString("0.00") + " ly"
-                     + "\nCandidate score: " + hit.Item2.CandidateScore.ToString("0.0");
+                     + "\nCandidate score: " + hit.System.CandidateScore.ToString("0.0");
             if (text == lastTip) return;
             lastTip = text;
             toolTip.Show(text, this, e.X + 14, e.Y + 14, 5000);
         }
 
-        private static Color ScoreColour(double score)
+        private void ZoomView(object sender, MouseEventArgs e)
         {
-            var ratio = Math.Max(0, Math.Min(1, score / 100));
-            return Color.FromArgb(70, (int)(145 + 95 * ratio), (int)(210 - 80 * ratio));
+            zoom = Math.Max(0.4, Math.Min(4, zoom * (e.Delta > 0 ? 1.12 : 0.89)));
+            Invalidate();
         }
 
-        private static void PadDomain(ref float min, ref float max)
+        private Vector3 Rotate(Vector3 value)
         {
-            var span = max - min;
-            if (span < 0.001f) span = 2f;
-            min -= span * 0.08f;
-            max += span * 0.08f;
+            var cosY = Math.Cos(yaw); var sinY = Math.Sin(yaw);
+            var x = value.X * cosY - value.Z * sinY;
+            var z = value.X * sinY + value.Z * cosY;
+            var cosP = Math.Cos(pitch); var sinP = Math.Sin(pitch);
+            return new Vector3(x, value.Y * cosP - z * sinP, value.Y * sinP + z * cosP);
+        }
+
+        private static Vector3 ToVector(Coordinates c) => new Vector3(c.X, c.Y, c.Z);
+        private static double DistanceSquared(PointF a, Point b) { var dx = a.X - b.X; var dy = a.Y - b.Y; return dx * dx + dy * dy; }
+        private static Color ScoreColour(double score) { var ratio = Math.Max(0, Math.Min(1, score / 100)); return Color.FromArgb(70, (int)(145 + 95 * ratio), (int)(210 - 80 * ratio)); }
+
+        private struct Vector3
+        {
+            public readonly double X, Y, Z;
+            public Vector3(double x, double y, double z) { X = x; Y = y; Z = z; }
+            public static Vector3 operator -(Vector3 left, Vector3 right) => new Vector3(left.X - right.X, left.Y - right.Y, left.Z - right.Z);
         }
     }
 }

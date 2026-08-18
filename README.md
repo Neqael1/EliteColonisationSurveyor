@@ -8,7 +8,7 @@ commander's current star system. The first MVP:
 - fetches known systems inside a user-selected radius from EDSM;
 - ranks likely colonisation survey candidates with explicit, editable weights;
 - orders the candidates with nearest-neighbour routing and a 2-opt improvement;
-- visualises the route in switchable top, front and side galactic projections;
+- visualises the route in a rotatable, zoomable 3D galactic map with view presets;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier

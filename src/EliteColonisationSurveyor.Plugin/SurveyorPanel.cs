@@ -63,10 +63,14 @@ namespace EliteColonisationSurveyor.Plugin
             var projection = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 155 };
             projection.Items.AddRange(new object[] { "Top: X / Z", "Front: X / Y", "Side: Z / Y" });
             projection.SelectedIndex = 0;
-            projection.SelectedIndexChanged += (_, __) => { routeMap.Projection = (RouteProjection)projection.SelectedIndex; };
+            projection.SelectedIndexChanged += (_, __) => routeMap.SetViewPreset(projection.SelectedIndex);
+            var resetView = new Button { Text = "Reset view", AutoSize = true };
+            resetView.Click += (_, __) => { projection.SelectedIndex = 0; routeMap.ResetView(); };
             var mapTools = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6) };
             mapTools.Controls.Add(new Label { Text = "Projection", AutoSize = true, Padding = new Padding(0, 6, 4, 0) });
             mapTools.Controls.Add(projection);
+            mapTools.Controls.Add(resetView);
+            mapTools.Controls.Add(new Label { Text = "Drag to rotate · Wheel to zoom", AutoSize = true, Padding = new Padding(8, 6, 0, 0) });
             mapPage.Controls.Add(routeMap);
             mapPage.Controls.Add(mapTools);
             tabs.TabPages.Add(routePage);
