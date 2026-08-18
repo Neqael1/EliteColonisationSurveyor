@@ -32,6 +32,10 @@ namespace EliteColonisationSurveyor.Plugin
                         Coordinates = new Coordinates { X = row.coords.x, Y = row.coords.y, Z = row.coords.z },
                         RequiresPermit = row.requirePermit,
                         Population = row.information?.population ?? 0,
+                        Allegiance = row.information?.allegiance,
+                        Government = row.information?.government,
+                        Economy = row.information?.economy,
+                        Security = row.information?.security,
                         PrimaryStarType = row.primaryStar?.type
                     });
                 }
@@ -48,7 +52,7 @@ namespace EliteColonisationSurveyor.Plugin
 
         private sealed class EdsmSystem { public long id; public string name; public double distance; public Coords coords; public bool requirePermit; public Information information; public PrimaryStar primaryStar; }
         private sealed class Coords { public double x; public double y; public double z; }
-        private sealed class Information { public long population; }
+        private sealed class Information { public long population; public string allegiance; public string government; public string economy; public string security; }
         private sealed class PrimaryStar { public string type; }
     }
 }

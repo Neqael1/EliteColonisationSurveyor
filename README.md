@@ -1,13 +1,21 @@
 # Elite Colonisation Surveyor
 
+<p align="center">
+  <img src="assets/colonisation-surveyor-icon.png" width="160" alt="Elite Colonisation Surveyor icon">
+</p>
+
 An EDDiscovery extension panel that builds an efficient survey route around the
 commander's current star system. The first MVP:
 
 - receives the current system, coordinates and ship through EDDiscovery;
 - reads the current ship loadout and detects its jump range where available;
 - fetches known systems inside a user-selected radius from EDSM;
+- removes systems with population or habitation metadata before ranking candidates;
 - ranks likely colonisation survey candidates with explicit, editable weights;
 - orders the candidates with nearest-neighbour routing and a 2-opt improvement;
+- visualises the route in a rotatable, zoomable 3D galactic map with view presets;
+- offers balanced, shortest-route, shell, spiral, octant, score-first, boundary
+  and jump-safe search patterns;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier
@@ -22,7 +30,8 @@ Developments or the EDDiscovery team.
 ## Install the prebuilt plugin
 
 1. Open the [latest release](https://github.com/Neqael1/EliteColonisationSurveyor/releases/latest).
-2. Download `EliteColonisationSurveyor-0.1.0.zip` from the release's **Assets** section.
+2. Download the `EliteColonisationSurveyor-<version>.zip` file from the
+   release's **Assets** section.
 3. Close EDDiscovery.
 4. Extract all three DLL files from the ZIP into EDDiscovery's extension DLL
    directory. This is normally `%LOCALAPPDATA%\EDDiscovery\DLL`; EDDiscovery's

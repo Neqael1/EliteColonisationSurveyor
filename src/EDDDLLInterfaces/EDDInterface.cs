@@ -19,13 +19,16 @@ namespace EDDDLLInterfaces
             [FieldOffset(72)] public double y;
             [FieldOffset(80)] public double z;
             [FieldOffset(112), MarshalAs(UnmanagedType.BStr)] public string shiptype;
+            [FieldOffset(168)] public int totalrecords;
             [FieldOffset(176), MarshalAs(UnmanagedType.BStr)] public string json;
             [FieldOffset(200), MarshalAs(UnmanagedType.BStr)] public string shipident;
             [FieldOffset(208), MarshalAs(UnmanagedType.BStr)] public string shipname;
+            [FieldOffset(320)] public ulong shipid;
             [FieldOffset(368)] public long systemaddress;
         }
 
         public delegate string EDDShipLoadout([MarshalAs(UnmanagedType.BStr)] string name);
+        public delegate bool EDDRequestHistory(long index, bool isjid, out JournalEntry entry);
         public delegate void EDDAddPanel(string id, Type paneltype, string wintitle, string refname, string description, Image img);
         public delegate void EDDString([MarshalAs(UnmanagedType.BStr)] string value);
 
@@ -33,6 +36,7 @@ namespace EDDDLLInterfaces
         public struct EDDCallBacks
         {
             [FieldOffset(0)] public int ver;
+            [FieldOffset(8)] public EDDRequestHistory RequestHistory;
             [FieldOffset(24)] public EDDShipLoadout GetShipLoadout;
             [FieldOffset(32)] public EDDAddPanel AddPanel;
             [FieldOffset(48)] public EDDString WriteToLog;
@@ -55,6 +59,7 @@ namespace EDDDLLInterfaces
             public PanelGet<int> GetInt;
             public PanelString SetControlText;
             public PanelBool IsClosed;
+            public PanelBool RequestTravelGridPosition;
             public PanelPushStarsList PushStars;
         }
 

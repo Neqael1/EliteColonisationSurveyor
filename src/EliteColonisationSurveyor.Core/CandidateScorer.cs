@@ -17,7 +17,7 @@ namespace EliteColonisationSurveyor.Core
             return systems
                 .Where(s => s != null && s.Coordinates != null)
                 .Where(s => s.DistanceFromCentre > 0 && s.DistanceFromCentre <= settings.RadiusLy)
-                .Where(s => !settings.ExcludePopulated || s.Population == 0)
+                .Where(s => !settings.ExcludeColonised || !s.IsColonised)
                 .Where(s => !settings.ExcludePermitLocked || !s.RequiresPermit)
                 .Select(s => { s.CandidateScore = Score(s, settings); return s; })
                 .OrderByDescending(s => s.CandidateScore)
@@ -28,7 +28,7 @@ namespace EliteColonisationSurveyor.Core
 
         private static double Score(StarSystem system, SearchSettings settings)
         {
-            double score = system.Population == 0 ? 60 : 5;
+            double score = system.IsColonised ? 5 : 60;
             score += system.RequiresPermit ? -100 : 20;
             if (settings.PreferScoopableStars && IsScoopable(system.PrimaryStarType)) score += 15;
             score += Math.Max(0, 5 - system.DistanceFromCentre / Math.Max(1, settings.RadiusLy) * 5);
