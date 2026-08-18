@@ -2,6 +2,18 @@ using System;
 
 namespace EliteColonisationSurveyor.Core
 {
+    public enum SearchPattern
+    {
+        Balanced,
+        ShortestRoute,
+        ConcentricShells,
+        Spiral3D,
+        OctantSweep,
+        ScoreFirst,
+        BoundarySurvey,
+        JumpSafe
+    }
+
     public sealed class Coordinates
     {
         public double X { get; set; }
@@ -53,5 +65,6 @@ namespace EliteColonisationSurveyor.Core
         public bool ExcludeColonised { get; set; } = true;
         public bool ExcludePermitLocked { get; set; } = true;
         public bool PreferScoopableStars { get; set; } = true;
+        public SearchPattern Pattern { get; set; } = SearchPattern.Balanced;
     }
 }

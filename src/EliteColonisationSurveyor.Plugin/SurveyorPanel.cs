@@ -20,6 +20,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly Label ship = new Label { AutoSize = true, Text = "Ship: waiting for EDDiscovery" };
         private readonly NumericUpDown radius = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 50, DecimalPlaces = 0, Width = 65 };
         private readonly NumericUpDown maximum = new NumericUpDown { Minimum = 1, Maximum = 500, Value = 100, Width = 65 };
+        private readonly ComboBox searchPattern = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 145 };
         private readonly CheckBox unpopulated = new CheckBox { Text = "Exclude colonised", Checked = true, AutoSize = true };
         private readonly CheckBox noPermit = new CheckBox { Text = "Exclude permit-locked", Checked = true, AutoSize = true };
         private readonly Button generate = new Button { Text = "Generate route", AutoSize = true };
@@ -38,11 +39,14 @@ namespace EliteColonisationSurveyor.Plugin
 
         public SurveyorPanel()
         {
+            searchPattern.Items.AddRange(new object[] { "Balanced", "Shortest route", "Concentric shells", "3D spiral", "Octant sweep", "Score first", "Boundary survey", "Jump safe" });
+            searchPattern.SelectedIndex = 0;
             var inputs = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), WrapContents = true };
             inputs.Controls.AddRange(new Control[] {
                 new Label { Text = "Centre", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, centre,
                 new Label { Text = "Radius (ly)", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, radius,
                 new Label { Text = "Max systems", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, maximum,
+                new Label { Text = "Pattern", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, searchPattern,
                 unpopulated, noPermit, generate, push
             });
             var details = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6) };
@@ -94,6 +98,7 @@ namespace EliteColonisationSurveyor.Plugin
             panelCallbacks = callbacks;
             radius.Value = Clamp(callbacks.GetDouble?.Invoke("radius", 50) ?? 50, radius.Minimum, radius.Maximum);
             maximum.Value = Clamp(callbacks.GetInt?.Invoke("maximum", 100) ?? 100, maximum.Minimum, maximum.Maximum);
+            searchPattern.SelectedIndex = Math.Max(0, Math.Min(searchPattern.Items.Count - 1, callbacks.GetInt?.Invoke("pattern", 0) ?? 0));
             CurrentLocationReceived += OnLocationChanged;
 
             EDDDLLIF.JournalEntry cached;
@@ -127,16 +132,20 @@ namespace EliteColonisationSurveyor.Plugin
             {
                 var settings = new SearchSettings {
                     RadiusLy = (double)radius.Value, MaximumSystems = (int)maximum.Value,
-                    ExcludeColonised = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked
+                    ExcludeColonised = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked,
+                    Pattern = (SearchPattern)searchPattern.SelectedIndex
                 };
                 var systems = await edsm.GetSphereAsync(origin.Name, settings.RadiusLy, cancellation.Token);
                 var ranked = scorer.Rank(systems, settings);
-                route = planner.Plan(origin, ranked, currentShip.JumpRange);
+                route = planner.Plan(origin, ranked, currentShip.JumpRange, settings.Pattern);
                 RenderRoute();
                 routeMap.SetRoute(route);
                 panelCallbacks.SaveDouble?.Invoke("radius", settings.RadiusLy);
                 panelCallbacks.SaveInt?.Invoke("maximum", settings.MaximumSystems);
-                status.Text = (route.Count - 1) + " candidates, " + RoutePlanner.TotalDistance(route).ToString("0.0") + " ly route";
+                panelCallbacks.SaveInt?.Invoke("pattern", searchPattern.SelectedIndex);
+                var skipped = ranked.Count - (route.Count - 1);
+                status.Text = (route.Count - 1) + " candidates, " + RoutePlanner.TotalDistance(route).ToString("0.0") + " ly route"
+                            + (skipped > 0 ? " — " + skipped + " unreachable" : "");
                 push.Enabled = route.Count > 1 && panelCallbacks.PushStars != null;
             }
             catch (OperationCanceledException) { status.Text = "Search cancelled."; }

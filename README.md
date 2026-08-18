@@ -10,6 +10,8 @@ commander's current star system. The first MVP:
 - ranks likely colonisation survey candidates with explicit, editable weights;
 - orders the candidates with nearest-neighbour routing and a 2-opt improvement;
 - visualises the route in a rotatable, zoomable 3D galactic map with view presets;
+- offers balanced, shortest-route, shell, spiral, octant, score-first, boundary
+  and jump-safe search patterns;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier

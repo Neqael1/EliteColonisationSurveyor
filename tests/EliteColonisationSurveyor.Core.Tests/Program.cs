@@ -22,4 +22,19 @@ var route = new RoutePlanner().Plan(origin, candidates, 30);
 Assert(route.Count == 4 && route[0].Name == "origin", "Route must retain origin and every candidate");
 Assert(RoutePlanner.TotalDistance(route) < 40, "Route optimisation produced an unexpectedly long path");
 
+foreach (var pattern in new[] { SearchPattern.Balanced, SearchPattern.ShortestRoute, SearchPattern.ConcentricShells, SearchPattern.Spiral3D, SearchPattern.OctantSweep, SearchPattern.ScoreFirst, SearchPattern.BoundarySurvey })
+{
+    route = new RoutePlanner().Plan(origin, candidates, 30, pattern);
+    Assert(route.Count == candidates.Count + 1 && route[0].Name == "origin", pattern + " lost a candidate or origin");
+}
+
+candidates[0].CandidateScore = 90;
+candidates[1].CandidateScore = 20;
+route = new RoutePlanner().Plan(origin, candidates, 30, SearchPattern.ScoreFirst);
+Assert(route[1].Name == "east", "Score-first pattern did not prioritise the highest score");
+
+route = new RoutePlanner().Plan(origin, candidates, 11, SearchPattern.JumpSafe);
+for (var i = 1; i < route.Count; i++)
+    Assert(route[i - 1].Coordinates.DistanceTo(route[i].Coordinates) <= 11.001, "Jump-safe pattern produced an unsafe leg");
+
 Console.WriteLine("All core tests passed.");
