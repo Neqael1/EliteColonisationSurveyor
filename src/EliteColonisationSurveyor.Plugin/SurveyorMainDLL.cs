@@ -22,7 +22,7 @@ namespace EliteColonisationSurveyor.Plugin
                 "Optimised colonisation candidate survey routes",
                 null);
             callbacks.WriteToLog?.Invoke("Colonisation Surveyor extension loaded");
-            return "0.4.1";
+            return "0.4.2";
         }
 
         public void EDDRefresh(string commander, EDDDLLIF.JournalEntry latest) => SurveyorPanel.PublishLocation(latest);

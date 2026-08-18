@@ -181,7 +181,7 @@ namespace EliteColonisationSurveyor.Plugin
 
         private ShipProfile ReadShip(EDDDLLIF.JournalEntry entry)
         {
-            var profile = new ShipProfile { Name = entry.shipname, Type = entry.shiptype };
+            var profile = new ShipProfile { Name = KnownValue(entry.shipname), Type = KnownValue(entry.shiptype) };
             if (entry.shipid != ulong.MaxValue && entry.shipid != cachedShipId)
             {
                 cachedShipId = entry.shipid;
@@ -194,6 +194,10 @@ namespace EliteColonisationSurveyor.Plugin
                 if (!string.IsNullOrWhiteSpace(raw))
                 {
                     var value = new JavaScriptSerializer().DeserializeObject(raw);
+                    profile.Name = KnownValue(FindString(value, "ShipUserName"))
+                                ?? KnownValue(FindString(value, "Name"))
+                                ?? profile.Name;
+                    profile.Type = KnownValue(FindString(value, "ShipType")) ?? profile.Type;
                     cachedJumpRange = FindNumber(value, "FSDCurrentRange")
                                    ?? FindNumber(value, "MaxJumpRange")
                                    ?? FindNumber(value, "FSDMaxRange")
@@ -241,6 +245,28 @@ namespace EliteColonisationSurveyor.Plugin
             var list = value as object[];
             if (list != null) foreach (var item in list) { var nested = FindNumber(item, key); if (nested.HasValue) return nested; }
             return null;
+        }
+
+        private static string FindString(object value, string key)
+        {
+            var map = value as IDictionary<string, object>;
+            if (map != null)
+            {
+                foreach (var pair in map)
+                    if (pair.Key.Equals(key, StringComparison.OrdinalIgnoreCase)) return Convert.ToString(pair.Value);
+                foreach (var pair in map)
+                {
+                    var nested = FindString(pair.Value, key); if (!string.IsNullOrWhiteSpace(nested)) return nested;
+                }
+            }
+            var list = value as object[];
+            if (list != null) foreach (var item in list) { var nested = FindString(item, key); if (!string.IsNullOrWhiteSpace(nested)) return nested; }
+            return null;
+        }
+
+        private static string KnownValue(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) || value.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ? null : value;
         }
 
         private static decimal Clamp(double value, decimal min, decimal max) => Math.Max(min, Math.Min(max, (decimal)value));
