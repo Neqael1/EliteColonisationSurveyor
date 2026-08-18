@@ -14,6 +14,8 @@ namespace EliteColonisationSurveyor.Plugin
     public sealed class SurveyorPanel : UserControl, EDDDLLIF.IEDDPanelExtension
     {
         private static event Action<EDDDLLIF.JournalEntry> CurrentLocationReceived;
+        private static readonly object LocationSync = new object();
+        private static EDDDLLIF.JournalEntry? latestLocation;
         private readonly TextBox centre = new TextBox { Width = 190, ReadOnly = true };
         private readonly Label ship = new Label { AutoSize = true, Text = "Ship: waiting for EDDiscovery" };
         private readonly NumericUpDown radius = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 50, DecimalPlaces = 0, Width = 65 };
@@ -62,7 +64,9 @@ namespace EliteColonisationSurveyor.Plugin
 
         internal static void PublishLocation(EDDDLLIF.JournalEntry entry)
         {
-            if (!string.IsNullOrWhiteSpace(entry.systemname)) CurrentLocationReceived?.Invoke(entry);
+            if (string.IsNullOrWhiteSpace(entry.systemname)) return;
+            lock (LocationSync) latestLocation = entry;
+            CurrentLocationReceived?.Invoke(entry);
         }
 
         public void Initialise(EDDDLLIF.EDDPanelCallbacks callbacks, int displayid, string themeasjson, string configuration)
@@ -71,6 +75,13 @@ namespace EliteColonisationSurveyor.Plugin
             radius.Value = Clamp(callbacks.GetDouble?.Invoke("radius", 50) ?? 50, radius.Minimum, radius.Maximum);
             maximum.Value = Clamp(callbacks.GetInt?.Invoke("maximum", 100) ?? 100, maximum.Minimum, maximum.Maximum);
             CurrentLocationReceived += OnLocationChanged;
+
+            EDDDLLIF.JournalEntry cached;
+            lock (LocationSync) cached = latestLocation ?? default(EDDDLLIF.JournalEntry);
+            if (!string.IsNullOrWhiteSpace(cached.systemname))
+                OnLocationChanged(cached);
+            else
+                callbacks.RequestTravelGridPosition?.Invoke();
         }
 
         private void OnLocationChanged(EDDDLLIF.JournalEntry entry)

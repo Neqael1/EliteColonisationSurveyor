@@ -55,6 +55,7 @@ namespace EDDDLLInterfaces
             public PanelGet<int> GetInt;
             public PanelString SetControlText;
             public PanelBool IsClosed;
+            public PanelBool RequestTravelGridPosition;
             public PanelPushStarsList PushStars;
         }
 
