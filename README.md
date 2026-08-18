@@ -19,6 +19,26 @@ Developments or the EDDiscovery team.
 - `src/EliteColonisationSurveyor.Plugin` – .NET Framework 4.8 WinForms panel.
 - `tests/EliteColonisationSurveyor.Core.Tests` – dependency-free test runner.
 
+## Install the prebuilt plugin
+
+1. Open the [latest release](https://github.com/Neqael1/EliteColonisationSurveyor/releases/latest).
+2. Download `EliteColonisationSurveyor-0.1.0.zip` from the release's **Assets** section.
+3. Close EDDiscovery.
+4. Extract all three DLL files from the ZIP into EDDiscovery's extension DLL
+   directory. This is normally `%LOCALAPPDATA%\EDDiscovery\DLL`; EDDiscovery's
+   add-on settings also show the directory it is using.
+5. Start EDDiscovery and approve the newly detected extension when prompted.
+6. Open the panel selector and add **Colonisation Surveyor**.
+
+Keep all three files together:
+
+- `EliteColonisationSurveyor.Plugin.dll`
+- `EliteColonisationSurveyor.Core.dll`
+- `EDDDLLInterfaces.dll`
+
+To upgrade, close EDDiscovery and replace the existing files with those from
+the newer release. To uninstall, close EDDiscovery and remove the three files.
+
 ## Build
 
 On Windows with Visual Studio 2022 or the Build Tools installed:
@@ -27,10 +47,11 @@ On Windows with Visual Studio 2022 or the Build Tools installed:
 dotnet build .\EliteColonisationSurveyor.sln -c Release
 ```
 
-Copy these two output files to EDDiscovery's extension DLL directory (shown in
+Copy these three output files to EDDiscovery's extension DLL directory (shown in
 EDDiscovery's extension/add-on settings):
 
 - `EliteColonisationSurveyor.Plugin.dll`
+- `EliteColonisationSurveyor.Core.dll`
 - `EDDDLLInterfaces.dll`
 
 Restart EDDiscovery, approve the newly detected extension, and add the
