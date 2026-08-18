@@ -13,4 +13,7 @@
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\colonisation-surveyor-icon.png" />
+  </ItemGroup>
 </Project>

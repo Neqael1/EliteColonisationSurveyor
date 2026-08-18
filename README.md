@@ -1,5 +1,9 @@
 # Elite Colonisation Surveyor
 
+<p align="center">
+  <img src="assets/colonisation-surveyor-icon.png" width="160" alt="Elite Colonisation Surveyor icon">
+</p>
+
 An EDDiscovery extension panel that builds an efficient survey route around the
 commander's current star system. The first MVP:
 
