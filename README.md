@@ -1,0 +1,53 @@
+# Elite Colonisation Surveyor
+
+An EDDiscovery extension panel that builds an efficient survey route around the
+commander's current star system. The first MVP:
+
+- receives the current system, coordinates and ship through EDDiscovery;
+- reads the current ship loadout and detects its jump range where available;
+- fetches known systems inside a user-selected radius from EDSM;
+- ranks likely colonisation survey candidates with explicit, editable weights;
+- orders the candidates with nearest-neighbour routing and a 2-opt improvement;
+- pushes the resulting star list into EDDiscovery's Expedition panel.
+
+This is an independent, unofficial project and is not endorsed by Frontier
+Developments or the EDDiscovery team.
+
+## Project layout
+
+- `src/EliteColonisationSurveyor.Core` – data models, scoring and route planner.
+- `src/EliteColonisationSurveyor.Plugin` – .NET Framework 4.8 WinForms panel.
+- `tests/EliteColonisationSurveyor.Core.Tests` – dependency-free test runner.
+
+## Build
+
+On Windows with Visual Studio 2022 or the Build Tools installed:
+
+```powershell
+dotnet build .\EliteColonisationSurveyor.sln -c Release
+```
+
+Copy these two output files to EDDiscovery's extension DLL directory (shown in
+EDDiscovery's extension/add-on settings):
+
+- `EliteColonisationSurveyor.Plugin.dll`
+- `EDDDLLInterfaces.dll`
+
+Restart EDDiscovery, approve the newly detected extension, and add the
+**Colonisation Surveyor** panel from the panel selector.
+
+The EDDiscovery interface source is vendored from
+`EDDiscovery/EliteDangerousCore` under Apache-2.0; see `THIRD_PARTY_NOTICES.md`.
+
+## Current assumptions
+
+EDSM only returns systems already submitted by commanders, so this route is a
+survey pattern over *known* stars rather than a complete catalogue of every
+procedurally generated star. The public sphere API has a maximum radius of 100
+ly, which the panel enforces. A candidate score is guidance, not a guarantee of
+in-game colonisation eligibility; eligibility and body details must be checked
+in game as systems are visited.
+
+The default score favours unpopulated, non-permit systems and scoopable primary
+stars. Distance from the centre is a small tie-breaker. The generated route
+always starts at the centre and excludes systems beyond the selected radius.
