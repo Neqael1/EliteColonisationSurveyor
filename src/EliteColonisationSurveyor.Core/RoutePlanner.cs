@@ -16,15 +16,15 @@ namespace EliteColonisationSurveyor.Core
 
             var remaining = candidates.Where(x => x != null && x.Coordinates != null && x.Name != origin.Name).ToList();
             if (pattern == SearchPattern.ScoreFirst)
-                return WithOrigin(origin, remaining.OrderByDescending(x => x.CandidateScore).ThenBy(x => x.DistanceFromCentre));
+                return ConstrainToJumpRange(WithOrigin(origin, remaining.OrderByDescending(x => x.CandidateScore).ThenBy(x => x.DistanceFromCentre)), jumpRange);
             if (pattern == SearchPattern.BoundarySurvey)
-                return WithOrigin(origin, remaining.OrderByDescending(x => x.DistanceFromCentre).ThenByDescending(x => x.CandidateScore));
+                return ConstrainToJumpRange(WithOrigin(origin, remaining.OrderByDescending(x => x.DistanceFromCentre).ThenByDescending(x => x.CandidateScore)), jumpRange);
             if (pattern == SearchPattern.ConcentricShells)
-                return PlanShells(origin, remaining, jumpRange);
+                return ConstrainToJumpRange(PlanShells(origin, remaining, jumpRange), jumpRange);
             if (pattern == SearchPattern.Spiral3D)
-                return PlanSpiral(origin, remaining);
+                return ConstrainToJumpRange(PlanSpiral(origin, remaining), jumpRange);
             if (pattern == SearchPattern.OctantSweep)
-                return PlanOctants(origin, remaining, jumpRange);
+                return ConstrainToJumpRange(PlanOctants(origin, remaining, jumpRange), jumpRange);
             if (pattern == SearchPattern.JumpSafe)
                 return PlanJumpSafe(origin, remaining, jumpRange);
 
@@ -42,7 +42,27 @@ namespace EliteColonisationSurveyor.Core
             }
 
             ImproveWithTwoOpt(route, 8);
-            return route;
+            return ConstrainToJumpRange(route, jumpRange);
+        }
+
+        private static IReadOnlyList<StarSystem> ConstrainToJumpRange(IReadOnlyList<StarSystem> preferredRoute, double jumpRange)
+        {
+            if (jumpRange <= 0 || preferredRoute.Count < 2) return preferredRoute;
+            var safe = new List<StarSystem> { preferredRoute[0] };
+            var remaining = preferredRoute.Skip(1).Select((system, index) => new { system, index }).ToList();
+            while (remaining.Count > 0)
+            {
+                var current = safe[safe.Count - 1];
+                var reachable = remaining
+                    .Where(x => current.Coordinates.DistanceTo(x.system.Coordinates) <= jumpRange + 0.001)
+                    .OrderBy(x => x.index)
+                    .ThenBy(x => current.Coordinates.DistanceTo(x.system.Coordinates))
+                    .FirstOrDefault();
+                if (reachable == null) break;
+                safe.Add(reachable.system);
+                remaining.Remove(reachable);
+            }
+            return safe;
         }
 
         private static IReadOnlyList<StarSystem> PlanShells(StarSystem origin, List<StarSystem> candidates, double jumpRange)

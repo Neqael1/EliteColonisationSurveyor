@@ -26,6 +26,8 @@ foreach (var pattern in new[] { SearchPattern.Balanced, SearchPattern.ShortestRo
 {
     route = new RoutePlanner().Plan(origin, candidates, 30, pattern);
     Assert(route.Count == candidates.Count + 1 && route[0].Name == "origin", pattern + " lost a candidate or origin");
+    for (var i = 1; i < route.Count; i++)
+        Assert(route[i - 1].Coordinates.DistanceTo(route[i].Coordinates) <= 30.001, pattern + " exceeded the ship jump range");
 }
 
 candidates[0].CandidateScore = 90;

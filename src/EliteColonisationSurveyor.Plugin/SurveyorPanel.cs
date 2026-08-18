@@ -34,6 +34,8 @@ namespace EliteColonisationSurveyor.Plugin
         private EDDDLLIF.EDDPanelCallbacks panelCallbacks;
         private StarSystem origin;
         private ShipProfile currentShip = new ShipProfile();
+        private double cachedJumpRange;
+        private ulong cachedShipId = ulong.MaxValue;
         private IReadOnlyList<StarSystem> route = new List<StarSystem>();
         private CancellationTokenSource cancellation;
 
@@ -123,6 +125,7 @@ namespace EliteColonisationSurveyor.Plugin
         private async Task GenerateAsync()
         {
             if (origin == null) { status.Text = "No current system received from EDDiscovery yet."; return; }
+            if (currentShip.JumpRange <= 0) { status.Text = "Cannot generate a safe route: ship jump range is unavailable."; return; }
             cancellation?.Cancel();
             cancellation = new CancellationTokenSource();
             generate.Enabled = false;
@@ -176,20 +179,52 @@ namespace EliteColonisationSurveyor.Plugin
                 ? "Route sent to the Expedition panel." : "EDDiscovery could not accept the route.";
         }
 
-        private static ShipProfile ReadShip(EDDDLLIF.JournalEntry entry)
+        private ShipProfile ReadShip(EDDDLLIF.JournalEntry entry)
         {
             var profile = new ShipProfile { Name = entry.shipname, Type = entry.shiptype };
+            if (entry.shipid != ulong.MaxValue && entry.shipid != cachedShipId)
+            {
+                cachedShipId = entry.shipid;
+                cachedJumpRange = 0;
+            }
             try
             {
+                cachedJumpRange = ReadJumpRange(entry.json) ?? cachedJumpRange;
                 var raw = SurveyorEDDClass.Callbacks.GetShipLoadout?.Invoke("");
                 if (!string.IsNullOrWhiteSpace(raw))
                 {
                     var value = new JavaScriptSerializer().DeserializeObject(raw);
-                    profile.JumpRange = FindNumber(value, "JumpRange") ?? FindNumber(value, "MaxJumpRange") ?? 0;
+                    cachedJumpRange = FindNumber(value, "FSDCurrentRange")
+                                   ?? FindNumber(value, "MaxJumpRange")
+                                   ?? FindNumber(value, "FSDMaxRange")
+                                   ?? cachedJumpRange;
                 }
+                if (cachedJumpRange <= 0) cachedJumpRange = FindJumpRangeInHistory(entry.totalrecords);
+                profile.JumpRange = cachedJumpRange;
             }
             catch { /* The host may not have a current loadout yet. */ }
             return profile;
+        }
+
+        private static double? ReadJumpRange(string jsonText)
+        {
+            if (string.IsNullOrWhiteSpace(jsonText) || jsonText.IndexOf("MaxJumpRange", StringComparison.OrdinalIgnoreCase) < 0) return null;
+            var value = new JavaScriptSerializer().DeserializeObject(jsonText);
+            return FindNumber(value, "MaxJumpRange");
+        }
+
+        private static double FindJumpRangeInHistory(int totalRecords)
+        {
+            if (SurveyorEDDClass.Callbacks.RequestHistory == null || totalRecords <= 0) return 0;
+            var first = Math.Max(1, totalRecords - 10000);
+            for (var index = totalRecords; index >= first; index--)
+            {
+                EDDDLLIF.JournalEntry historyEntry;
+                if (!SurveyorEDDClass.Callbacks.RequestHistory(index, false, out historyEntry)) continue;
+                var range = ReadJumpRange(historyEntry.json);
+                if (range.HasValue && range.Value > 0) return range.Value;
+            }
+            return 0;
         }
 
         private static double? FindNumber(object value, string key)
