@@ -70,7 +70,7 @@ namespace EliteColonisationSurveyor.Core
 
     public sealed class SearchSettings
     {
-        public double RadiusLy { get; set; } = 50;
+        public double RadiusLy { get; set; } = 15;
         public int MaximumSystems { get; set; } = 100;
         public bool ExcludeColonised { get; set; } = true;
         public bool ExcludePermitLocked { get; set; } = true;
