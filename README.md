@@ -32,6 +32,8 @@ commander's current star system. The first MVP:
   hyperspace jump;
 - offers an Exploration mode that routes only through systems EDSM confirms
   have no submitted body data, without treating lookup failures as unexplored;
+- can insert a configurable number of known-data bridge systems between
+  Exploration-mode targets when the ship cannot reach them directly;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier

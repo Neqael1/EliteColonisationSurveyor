@@ -45,6 +45,97 @@ namespace EliteColonisationSurveyor.Core
             return ConstrainToJumpRange(route, jumpRange);
         }
 
+        public IReadOnlyList<StarSystem> PlanWithBridges(StarSystem origin, IEnumerable<StarSystem> targets,
+            IEnumerable<StarSystem> bridgeCandidates, double jumpRange, SearchPattern pattern, int maximumBridgesPerTarget)
+        {
+            if (origin == null || origin.Coordinates == null) throw new ArgumentNullException(nameof(origin));
+            if (targets == null) throw new ArgumentNullException(nameof(targets));
+            if (bridgeCandidates == null) throw new ArgumentNullException(nameof(bridgeCandidates));
+
+            var remainingTargets = targets.Where(x => x != null && x.Coordinates != null && x.Name != origin.Name).ToList();
+            var targetNames = new HashSet<string>(remainingTargets.Select(x => x.Name), StringComparer.OrdinalIgnoreCase);
+            var availableBridges = bridgeCandidates
+                .Where(x => x != null && x.Coordinates != null && x.Name != origin.Name && !targetNames.Contains(x.Name))
+                .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase).Select(x => x.First()).ToList();
+            var route = new List<StarSystem> { origin };
+            maximumBridgesPerTarget = Math.Max(0, maximumBridgesPerTarget);
+
+            while (remainingTargets.Count > 0)
+            {
+                var current = route[route.Count - 1];
+                var reachable = remainingTargets
+                    .Select(target => new { Target = target, Path = FindBridgePath(current, target, availableBridges, jumpRange, maximumBridgesPerTarget) })
+                    .Where(x => x.Path != null)
+                    .OrderBy(x => x.Path.Count)
+                    .ThenBy(x => BridgeTargetPriority(origin, current, x.Target, route, jumpRange, pattern))
+                    .ThenByDescending(x => x.Target.CandidateScore)
+                    .FirstOrDefault();
+                if (reachable == null) break;
+
+                foreach (var system in reachable.Path)
+                {
+                    if (!ReferenceEquals(system, reachable.Target))
+                    {
+                        system.IsRouteBridge = true;
+                        availableBridges.Remove(system);
+                    }
+                    route.Add(system);
+                }
+                remainingTargets.Remove(reachable.Target);
+            }
+            return route;
+        }
+
+        private static List<StarSystem> FindBridgePath(StarSystem from, StarSystem target,
+            List<StarSystem> bridges, double jumpRange, int maximumBridges)
+        {
+            if (jumpRange <= 0 || from.Coordinates.DistanceTo(target.Coordinates) <= jumpRange + 0.001)
+                return new List<StarSystem> { target };
+            if (maximumBridges <= 0) return null;
+
+            var queue = new Queue<List<StarSystem>>();
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var bridge in bridges.Where(x => from.Coordinates.DistanceTo(x.Coordinates) <= jumpRange + 0.001)
+                                          .OrderBy(x => x.Coordinates.DistanceTo(target.Coordinates)))
+            {
+                queue.Enqueue(new List<StarSystem> { bridge });
+                visited.Add(bridge.Name);
+            }
+
+            while (queue.Count > 0)
+            {
+                var path = queue.Dequeue();
+                var last = path[path.Count - 1];
+                if (last.Coordinates.DistanceTo(target.Coordinates) <= jumpRange + 0.001)
+                {
+                    path.Add(target);
+                    return path;
+                }
+                if (path.Count >= maximumBridges) continue;
+                foreach (var bridge in bridges.Where(x => !visited.Contains(x.Name)
+                                                        && last.Coordinates.DistanceTo(x.Coordinates) <= jumpRange + 0.001)
+                                              .OrderBy(x => x.Coordinates.DistanceTo(target.Coordinates)))
+                {
+                    visited.Add(bridge.Name);
+                    var next = new List<StarSystem>(path) { bridge };
+                    queue.Enqueue(next);
+                }
+            }
+            return null;
+        }
+
+        private static double BridgeTargetPriority(StarSystem origin, StarSystem current, StarSystem target,
+            IReadOnlyList<StarSystem> route, double jumpRange, SearchPattern pattern)
+        {
+            if (pattern == SearchPattern.ScoreFirst) return -target.CandidateScore;
+            if (pattern == SearchPattern.BoundarySurvey) return -target.DistanceFromCentre;
+            if (pattern == SearchPattern.ConcentricShells) return target.DistanceFromCentre;
+            if (pattern == SearchPattern.Spiral3D) return SpiralKey(origin, target, 4);
+            if (pattern == SearchPattern.OctantSweep) return Octant(origin, target) * 1000000.0 + current.Coordinates.DistanceTo(target.Coordinates);
+            if (pattern == SearchPattern.Balanced) return BalancedCost(current, target, route, jumpRange);
+            return PenalisedDistance(current, target, jumpRange);
+        }
+
         private static IReadOnlyList<StarSystem> ConstrainToJumpRange(IReadOnlyList<StarSystem> preferredRoute, double jumpRange)
         {
             if (jumpRange <= 0 || preferredRoute.Count < 2) return preferredRoute;
