@@ -54,28 +54,55 @@ namespace EliteColonisationSurveyor.Installer
                 throw new InvalidOperationException("Close EDDiscovery before installing the plugin.");
 
             Directory.CreateDirectory(target);
-            WritePayload(target, "EliteColonisationSurveyor.Core.dll");
-            WritePayload(target, "EliteColonisationSurveyor.Plugin.dll");
+            string stagingDirectory = Path.Combine(target, ".EliteColonisationSurveyor-install-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(stagingDirectory);
+            try
+            {
+                // Verify that the complete payload can be extracted before touching an existing install.
+                WritePayload(stagingDirectory, "EliteColonisationSurveyor.Core.dll");
+                WritePayload(stagingDirectory, "EliteColonisationSurveyor.Plugin.dll");
+
+                RemovePreviousInstall(target);
+                MovePayload(stagingDirectory, target, "EliteColonisationSurveyor.Core.dll");
+                MovePayload(stagingDirectory, target, "EliteColonisationSurveyor.Plugin.dll");
+            }
+            finally
+            {
+                if (Directory.Exists(stagingDirectory))
+                    Directory.Delete(stagingDirectory, true);
+            }
+        }
+
+        private static void RemovePreviousInstall(string target)
+        {
+            foreach (string file in Directory.GetFiles(target, "EliteColonisationSurveyor*.dll", SearchOption.TopDirectoryOnly))
+                File.Delete(file);
+
+            // Releases up to 0.5.0 included this interface assembly. EDDiscovery supplies its
+            // own compatible copy, and leaving the old one beside the plugin can prevent load.
+            string legacyInterface = Path.Combine(target, "EDDDLLInterfaces.dll");
+            if (File.Exists(legacyInterface))
+                File.Delete(legacyInterface);
+        }
+
+        private static void MovePayload(string sourceDirectory, string target, string fileName)
+        {
+            File.Move(Path.Combine(sourceDirectory, fileName), Path.Combine(target, fileName));
         }
 
         private static void WritePayload(string target, string fileName)
         {
             string resourceName = "Payload." + fileName;
             string destination = Path.Combine(target, fileName);
-            string temporary = destination + ".installing";
 
             using (Stream source = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName))
             {
                 if (source == null)
                     throw new InvalidOperationException("The installer payload is incomplete: " + fileName);
 
-                using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
                     source.CopyTo(output);
             }
-
-            if (File.Exists(destination))
-                File.Delete(destination);
-            File.Move(temporary, destination);
         }
 
         private sealed class InstallerForm : Form

@@ -27,6 +27,9 @@ commander's current star system. The first MVP:
   data is unavailable;
 - keeps a persistent shortlist of systems favourited while they are being
   visited and can send that shortlist to the Expedition panel;
+- tracks progress through the generated route, identifies and copies the next
+  waypoint for Galaxy Map search, and can auto-copy it after each successful
+  hyperspace jump;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier
@@ -53,7 +56,9 @@ Developments or the EDDiscovery team.
 
 The installer only writes `EliteColonisationSurveyor.Plugin.dll` and
 `EliteColonisationSurveyor.Core.dll` to `%LOCALAPPDATA%\EDDiscovery\DLL` for
-the current user. It does not require administrator access.
+the current user. Before installing the new pair, it removes older
+`EliteColonisationSurveyor*.dll` files and the obsolete `EDDDLLInterfaces.dll`
+included with releases up to 0.5.0. It does not require administrator access.
 
 ### Manual ZIP installation
 
