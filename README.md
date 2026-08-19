@@ -36,6 +36,23 @@ Developments or the EDDiscovery team.
 
 ## Install the prebuilt plugin
 
+### Easy installer
+
+1. Open the [latest release](https://github.com/Neqael1/EliteColonisationSurveyor/releases/latest).
+2. Download and run `EliteColonisationSurveyor-<version>-Setup.exe`.
+3. Windows may show a SmartScreen warning because the installer is not yet
+   code-signed. If you downloaded it from this repository, select **More info**
+   and **Run anyway**.
+4. Close EDDiscovery when prompted, then select **Install**.
+5. Start EDDiscovery, approve the newly detected extension, and add
+   **Colonisation Surveyor** from the panel selector.
+
+The installer only writes `EliteColonisationSurveyor.Plugin.dll` and
+`EliteColonisationSurveyor.Core.dll` to `%LOCALAPPDATA%\EDDiscovery\DLL` for
+the current user. It does not require administrator access.
+
+### Manual ZIP installation
+
 1. Open the [latest release](https://github.com/Neqael1/EliteColonisationSurveyor/releases/latest).
 2. Download the `EliteColonisationSurveyor-<version>.zip` file from the
    release's **Assets** section.
