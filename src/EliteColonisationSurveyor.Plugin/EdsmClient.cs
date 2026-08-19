@@ -67,8 +67,10 @@ namespace EliteColonisationSurveyor.Plugin
                 if (!response.IsSuccessStatusCode) return;
                 var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var data = new JavaScriptSerializer().Deserialize<BodyResponse>(text);
-                if (data == null || data.bodies == null || data.bodies.Count == 0) return;
-                system.BodyDataAvailable = true;
+                if (data == null) return;
+                system.BodyDataLookupSucceeded = true;
+                system.BodyDataAvailable = data.bodyCount > 0 || (data.bodies != null && data.bodies.Count > 0);
+                if (!system.BodyDataAvailable || data.bodies == null || data.bodies.Count == 0) return;
                 system.KnownBodyCount = data.bodyCount > 0 ? data.bodyCount : data.bodies.Count;
                 system.BodyDataCompleteness = data.bodyCount > 0 ? Math.Min(1, data.bodies.Count / (double)data.bodyCount) : 1;
                 var usefulDistances = new List<double>();

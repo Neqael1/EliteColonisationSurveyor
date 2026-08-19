@@ -30,6 +30,8 @@ commander's current star system. The first MVP:
 - tracks progress through the generated route, identifies and copies the next
   waypoint for Galaxy Map search, and can auto-copy it after each successful
   hyperspace jump;
+- offers an Exploration mode that routes only through systems EDSM confirms
+  have no submitted body data, without treating lookup failures as unexplored;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier

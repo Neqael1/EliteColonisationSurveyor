@@ -23,6 +23,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly ComboBox searchPattern = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 145 };
         private readonly CheckBox unpopulated = new CheckBox { Text = "Exclude colonised", Checked = true, AutoSize = true };
         private readonly CheckBox noPermit = new CheckBox { Text = "Exclude permit-locked", Checked = true, AutoSize = true };
+        private readonly CheckBox explorationMode = new CheckBox { Text = "Exploration mode (no EDSM body data)", AutoSize = true };
         private readonly CheckBox useMinimumScore = new CheckBox { Text = "Minimum score", AutoSize = true };
         private readonly NumericUpDown minimumScore = new NumericUpDown { Minimum = -1000, Maximum = 1000, Value = 75, DecimalPlaces = 1, Width = 70, Enabled = false };
         private readonly Button generate = new Button { Text = "Generate route", AutoSize = true };
@@ -81,7 +82,7 @@ namespace EliteColonisationSurveyor.Plugin
                 new Label { Text = "Radius (ly)", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, radius,
                 new Label { Text = "Max systems", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, maximum,
                 new Label { Text = "Pattern", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, searchPattern,
-                unpopulated, noPermit, useMinimumScore, minimumScore, generate, push,
+                unpopulated, noPermit, explorationMode, useMinimumScore, minimumScore, generate, push,
                 copyNext, autoCopyNext, shortlistCurrent
             });
             useMinimumScore.CheckedChanged += (_, __) => minimumScore.Enabled = useMinimumScore.Checked;
@@ -149,6 +150,7 @@ namespace EliteColonisationSurveyor.Plugin
             searchPattern.SelectedIndex = Math.Max(0, Math.Min(searchPattern.Items.Count - 1, callbacks.GetInt?.Invoke("pattern", 0) ?? 0));
             useMinimumScore.Checked = (callbacks.GetInt?.Invoke("minimum_score_enabled", 0) ?? 0) != 0;
             minimumScore.Value = Clamp(callbacks.GetDouble?.Invoke("minimum_score", 75) ?? 75, minimumScore.Minimum, minimumScore.Maximum);
+            explorationMode.Checked = (callbacks.GetInt?.Invoke("exploration_mode", 0) ?? 0) != 0;
             autoCopyNext.Checked = (callbacks.GetInt?.Invoke("auto_copy_next", 0) ?? 0) != 0;
             LoadScoreWeights(callbacks);
             LoadShortlist(callbacks);
@@ -212,12 +214,17 @@ namespace EliteColonisationSurveyor.Plugin
                 var settings = new SearchSettings {
                     RadiusLy = (double)radius.Value, MaximumSystems = (int)maximum.Value,
                     ExcludeColonised = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked,
+                    OnlySystemsWithoutBodyData = explorationMode.Checked,
                     Pattern = (SearchPattern)searchPattern.SelectedIndex, Weights = GetScoreWeights(),
                     MinimumScore = useMinimumScore.Checked ? (double?)minimumScore.Value : null
                 };
                 var systems = await edsm.GetSphereAsync(origin.Name, settings.RadiusLy, cancellation.Token);
                 var preliminarySettings = new SearchSettings {
-                    RadiusLy = settings.RadiusLy, MaximumSystems = settings.MaximumSystems,
+                    RadiusLy = settings.RadiusLy,
+                    // Exploration mode must inspect every otherwise-eligible system before
+                    // applying the requested route limit, or known systems near the top of
+                    // the score ranking could hide valid no-data candidates below them.
+                    MaximumSystems = settings.OnlySystemsWithoutBodyData ? systems.Count : settings.MaximumSystems,
                     ExcludeColonised = settings.ExcludeColonised, ExcludePermitLocked = settings.ExcludePermitLocked,
                     Pattern = settings.Pattern, Weights = settings.Weights
                 };
@@ -234,11 +241,14 @@ namespace EliteColonisationSurveyor.Plugin
                 panelCallbacks.SaveInt?.Invoke("pattern", searchPattern.SelectedIndex);
                 panelCallbacks.SaveInt?.Invoke("minimum_score_enabled", useMinimumScore.Checked ? 1 : 0);
                 panelCallbacks.SaveDouble?.Invoke("minimum_score", (double)minimumScore.Value);
+                panelCallbacks.SaveInt?.Invoke("exploration_mode", explorationMode.Checked ? 1 : 0);
                 panelCallbacks.SaveInt?.Invoke("auto_copy_next", autoCopyNext.Checked ? 1 : 0);
                 SaveScoreWeights();
                 var skipped = ranked.Count - (route.Count - 1);
-                status.Text = (route.Count - 1) + " candidates, " + RoutePlanner.TotalDistance(route).ToString("0.0") + " ly route"
-                            + (skipped > 0 ? " — " + skipped + " unreachable" : "");
+                status.Text = explorationMode.Checked && route.Count <= 1
+                    ? "No systems with confirmed missing EDSM body data matched the current search."
+                    : (route.Count - 1) + " candidates, " + RoutePlanner.TotalDistance(route).ToString("0.0") + " ly route"
+                        + (skipped > 0 ? " — " + skipped + " unreachable" : "");
                 push.Enabled = route.Count > 1 && panelCallbacks.PushStars != null;
                 UpdateRouteProgressDisplay();
             }

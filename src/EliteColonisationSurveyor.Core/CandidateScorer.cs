@@ -19,6 +19,7 @@ namespace EliteColonisationSurveyor.Core
                 .Where(s => s.DistanceFromCentre > 0 && s.DistanceFromCentre <= settings.RadiusLy)
                 .Where(s => !settings.ExcludeColonised || !s.IsColonised)
                 .Where(s => !settings.ExcludePermitLocked || !s.RequiresPermit)
+                .Where(s => !settings.OnlySystemsWithoutBodyData || (s.BodyDataLookupSucceeded && !s.BodyDataAvailable))
                 .Select(s => { s.CandidateScore = Score(s, settings); return s; })
                 .Where(s => !settings.MinimumScore.HasValue || s.CandidateScore >= settings.MinimumScore.Value)
                 .OrderByDescending(s => s.CandidateScore)

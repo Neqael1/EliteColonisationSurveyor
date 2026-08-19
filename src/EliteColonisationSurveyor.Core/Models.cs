@@ -44,6 +44,7 @@ namespace EliteColonisationSurveyor.Core
         public string PrimaryStarType { get; set; }
         public double CandidateScore { get; set; }
         public string ScoreBreakdown { get; set; }
+        public bool BodyDataLookupSucceeded { get; set; }
         public bool BodyDataAvailable { get; set; }
         public double BodyDataCompleteness { get; set; }
         public int KnownBodyCount { get; set; }
@@ -75,6 +76,7 @@ namespace EliteColonisationSurveyor.Core
         public bool ExcludeColonised { get; set; } = true;
         public bool ExcludePermitLocked { get; set; } = true;
         public bool PreferScoopableStars { get; set; } = true;
+        public bool OnlySystemsWithoutBodyData { get; set; }
         public SearchPattern Pattern { get; set; } = SearchPattern.Balanced;
         public ScoreWeights Weights { get; set; } = new ScoreWeights();
         public double? MinimumScore { get; set; }
