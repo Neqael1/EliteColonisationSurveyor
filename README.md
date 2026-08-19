@@ -23,6 +23,8 @@ commander's current star system. The first MVP:
   stellar hazards and data confidence;
 - provides scoring presets, per-system score breakdowns and an optional minimum
   score cutoff before candidates are admitted to the route;
+- supports a configurable percentage fallback for coefficients whose source
+  data is unavailable;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier

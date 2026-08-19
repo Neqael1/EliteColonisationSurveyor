@@ -31,11 +31,23 @@ namespace EliteColonisationSurveyor.Core
         {
             var weights = settings.Weights ?? new ScoreWeights();
             var parts = new List<string>();
-            double score = Add(parts, system.IsColonised ? weights.Colonised : weights.Uncolonised, system.IsColonised ? "colonised" : "uncolonised");
+            var unknownFraction = Math.Max(0, Math.Min(100, weights.UnknownDataPercent)) / 100.0;
+            double score = settings.ExcludeColonised
+                ? 0
+                : Add(parts, system.IsColonised ? weights.Colonised : weights.Uncolonised, system.IsColonised ? "colonised" : "uncolonised");
             score += Add(parts, system.RequiresPermit ? weights.PermitRequired : weights.NoPermitRequired, system.RequiresPermit ? "permit" : "no permit");
-            if (settings.PreferScoopableStars && IsScoopable(system.PrimaryStarType)) score += Add(parts, weights.ScoopablePrimary, "scoopable");
+            if (string.IsNullOrWhiteSpace(system.PrimaryStarType))
+            {
+                if (settings.PreferScoopableStars)
+                    score += AddUnknown(parts, weights.ScoopablePrimary, unknownFraction, "scoopability");
+                score += AddUnknown(parts, weights.StellarHazard, unknownFraction, "stellar hazard");
+            }
+            else
+            {
+                if (settings.PreferScoopableStars && IsScoopable(system.PrimaryStarType)) score += Add(parts, weights.ScoopablePrimary, "scoopable");
+                if (IsHazardous(system.PrimaryStarType)) score += Add(parts, weights.StellarHazard, "stellar hazard");
+            }
             score += Add(parts, weights.NearCentre * Math.Max(0, 1 - system.DistanceFromCentre / Math.Max(1, settings.RadiusLy)), "centre distance");
-            if (IsHazardous(system.PrimaryStarType)) score += Add(parts, weights.StellarHazard, "stellar hazard");
             if (system.BodyDataAvailable)
             {
                 var suitability = Math.Min(1, (system.HabitableBodyCount * 2 + system.TerraformableBodyCount + system.LandableBodyCount * 0.25) / 8.0);
@@ -46,9 +58,21 @@ namespace EliteColonisationSurveyor.Core
                 score += Add(parts, weights.ArrivalConvenience * arrival, "arrival");
                 score += Add(parts, weights.DataConfidence * Math.Max(0, Math.Min(1, system.BodyDataCompleteness)), "data confidence");
             }
-            else parts.Add("body data unknown");
+            else
+            {
+                parts.Add("body data unknown");
+                score += AddUnknown(parts, weights.BodySuitability, unknownFraction, "body suitability");
+                score += AddUnknown(parts, weights.ResourcePotential, unknownFraction, "resources");
+                score += AddUnknown(parts, weights.ArrivalConvenience, unknownFraction, "arrival");
+                score += AddUnknown(parts, weights.DataConfidence, unknownFraction, "data confidence");
+            }
             system.ScoreBreakdown = string.Join("; ", parts);
             return Math.Round(score, 2);
+        }
+
+        private static double AddUnknown(List<string> parts, double coefficient, double fraction, string name)
+        {
+            return Add(parts, coefficient * fraction, name + " (unknown default)");
         }
 
         private static double Add(List<string> parts, double value, string name)
