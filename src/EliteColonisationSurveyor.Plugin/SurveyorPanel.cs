@@ -18,7 +18,7 @@ namespace EliteColonisationSurveyor.Plugin
         private static EDDDLLIF.JournalEntry? latestLocation;
         private readonly TextBox centre = new TextBox { Width = 190, ReadOnly = true };
         private readonly Label ship = new Label { AutoSize = true, Text = "Ship: waiting for EDDiscovery" };
-        private readonly NumericUpDown radius = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 50, DecimalPlaces = 0, Width = 65 };
+        private readonly NumericUpDown radius = new NumericUpDown { Minimum = 1, Maximum = 100, Value = 15, DecimalPlaces = 0, Width = 65 };
         private readonly NumericUpDown maximum = new NumericUpDown { Minimum = 1, Maximum = 500, Value = 100, Width = 65 };
         private readonly ComboBox searchPattern = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 145 };
         private readonly CheckBox unpopulated = new CheckBox { Text = "Exclude colonised", Checked = true, AutoSize = true };
@@ -27,8 +27,15 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly NumericUpDown minimumScore = new NumericUpDown { Minimum = -1000, Maximum = 1000, Value = 75, DecimalPlaces = 1, Width = 70, Enabled = false };
         private readonly Button generate = new Button { Text = "Generate route", AutoSize = true };
         private readonly Button push = new Button { Text = "Send to Expedition", AutoSize = true, Enabled = false };
+        private readonly Button shortlistCurrent = new Button { Text = "☆ Shortlist current", AutoSize = true, Enabled = false };
         private readonly Label status = new Label { AutoSize = true, Text = "Waiting for current system…" };
         private readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = false, AllowUserToAddRows = false };
+        private readonly DataGridView shortlistGrid = new DataGridView {
+            Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = false, AllowUserToAddRows = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = true
+        };
+        private readonly Button removeShortlisted = new Button { Text = "Remove selected", AutoSize = true, Enabled = false };
+        private readonly Button pushShortlist = new Button { Text = "Send shortlist to Expedition", AutoSize = true, Enabled = false };
         private readonly RouteMapControl routeMap = new RouteMapControl { Dock = DockStyle.Fill };
         private readonly NumericUpDown uncolonisedWeight = Weight(60);
         private readonly NumericUpDown colonisedWeight = Weight(5);
@@ -55,6 +62,7 @@ namespace EliteColonisationSurveyor.Plugin
         private ulong cachedShipId = ulong.MaxValue;
         private IReadOnlyList<StarSystem> route = new List<StarSystem>();
         private CancellationTokenSource cancellation;
+        private readonly HashSet<string> shortlistedSystems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private decimal configuredUncolonisedWeight = 60;
         private decimal configuredColonisedWeight = 5;
         private bool updatingColonisationWeights;
@@ -69,7 +77,7 @@ namespace EliteColonisationSurveyor.Plugin
                 new Label { Text = "Radius (ly)", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, radius,
                 new Label { Text = "Max systems", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, maximum,
                 new Label { Text = "Pattern", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, searchPattern,
-                unpopulated, noPermit, useMinimumScore, minimumScore, generate, push
+                unpopulated, noPermit, useMinimumScore, minimumScore, generate, push, shortlistCurrent
             });
             useMinimumScore.CheckedChanged += (_, __) => minimumScore.Enabled = useMinimumScore.Checked;
             unpopulated.CheckedChanged += (_, __) => UpdateColonisationWeightState();
@@ -103,14 +111,17 @@ namespace EliteColonisationSurveyor.Plugin
             mapPage.Controls.Add(routeMap);
             mapPage.Controls.Add(mapTools);
             var scoringPage = BuildScoringPage();
+            var shortlistPage = BuildShortlistPage();
             tabs.TabPages.Add(routePage);
             tabs.TabPages.Add(mapPage);
+            tabs.TabPages.Add(shortlistPage);
             tabs.TabPages.Add(scoringPage);
             Controls.Add(tabs);
             Controls.Add(details);
             Controls.Add(inputs);
             generate.Click += async (_, __) => await GenerateAsync();
             push.Click += (_, __) => PushRoute();
+            shortlistCurrent.Click += (_, __) => ToggleCurrentShortlist();
         }
 
         internal static void PublishLocation(EDDDLLIF.JournalEntry entry)
@@ -123,12 +134,13 @@ namespace EliteColonisationSurveyor.Plugin
         public void Initialise(EDDDLLIF.EDDPanelCallbacks callbacks, int displayid, string themeasjson, string configuration)
         {
             panelCallbacks = callbacks;
-            radius.Value = Clamp(callbacks.GetDouble?.Invoke("radius", 50) ?? 50, radius.Minimum, radius.Maximum);
+            radius.Value = Clamp(callbacks.GetDouble?.Invoke("radius", 15) ?? 15, radius.Minimum, radius.Maximum);
             maximum.Value = Clamp(callbacks.GetInt?.Invoke("maximum", 100) ?? 100, maximum.Minimum, maximum.Maximum);
             searchPattern.SelectedIndex = Math.Max(0, Math.Min(searchPattern.Items.Count - 1, callbacks.GetInt?.Invoke("pattern", 0) ?? 0));
             useMinimumScore.Checked = (callbacks.GetInt?.Invoke("minimum_score_enabled", 0) ?? 0) != 0;
             minimumScore.Value = Clamp(callbacks.GetDouble?.Invoke("minimum_score", 75) ?? 75, minimumScore.Minimum, minimumScore.Maximum);
             LoadScoreWeights(callbacks);
+            LoadShortlist(callbacks);
             UpdateColonisationWeightState();
             CurrentLocationReceived += OnLocationChanged;
 
@@ -149,6 +161,8 @@ namespace EliteColonisationSurveyor.Plugin
             ship.Text = "Ship: " + (currentShip.Name ?? currentShip.Type ?? "unknown")
                       + (currentShip.JumpRange > 0 ? " — " + currentShip.JumpRange.ToString("0.0") + " ly jump" : " — jump range unavailable");
             status.Text = "Ready";
+            shortlistCurrent.Enabled = true;
+            UpdateShortlistCurrentButton();
         }
 
         private async Task GenerateAsync()
@@ -218,6 +232,98 @@ namespace EliteColonisationSurveyor.Plugin
             var names = route.Skip(1).Select(x => x.Name).ToList();
             status.Text = panelCallbacks.PushStars("expedition", names)
                 ? "Route sent to the Expedition panel." : "EDDiscovery could not accept the route.";
+        }
+
+        private TabPage BuildShortlistPage()
+        {
+            var page = new TabPage("Shortlist");
+            shortlistGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "System", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            shortlistGrid.SelectionChanged += (_, __) => removeShortlisted.Enabled = shortlistGrid.SelectedRows.Count > 0;
+            removeShortlisted.Click += (_, __) => RemoveSelectedShortlistEntries();
+            pushShortlist.Click += (_, __) => PushShortlistedSystems();
+
+            var tools = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6) };
+            tools.Controls.Add(removeShortlisted);
+            tools.Controls.Add(pushShortlist);
+            tools.Controls.Add(new Label {
+                Text = "Use ☆ Shortlist current while visiting a system to add or remove it.",
+                AutoSize = true, Padding = new Padding(8, 6, 0, 0)
+            });
+            page.Controls.Add(shortlistGrid);
+            page.Controls.Add(tools);
+            return page;
+        }
+
+        private void ToggleCurrentShortlist()
+        {
+            if (origin == null || string.IsNullOrWhiteSpace(origin.Name)) return;
+            if (!shortlistedSystems.Add(origin.Name))
+            {
+                shortlistedSystems.Remove(origin.Name);
+                status.Text = origin.Name + " removed from the shortlist.";
+            }
+            else status.Text = origin.Name + " added to the shortlist.";
+            SaveShortlist();
+            RenderShortlist();
+            UpdateShortlistCurrentButton();
+        }
+
+        private void LoadShortlist(EDDDLLIF.EDDPanelCallbacks callbacks)
+        {
+            shortlistedSystems.Clear();
+            var json = callbacks.GetString?.Invoke("shortlisted_systems", "[]") ?? "[]";
+            try
+            {
+                foreach (var name in new JavaScriptSerializer().Deserialize<string[]>(json) ?? new string[0])
+                    if (!string.IsNullOrWhiteSpace(name)) shortlistedSystems.Add(name.Trim());
+            }
+            catch { /* Ignore malformed settings and start with an empty shortlist. */ }
+            RenderShortlist();
+        }
+
+        private void SaveShortlist()
+        {
+            var json = new JavaScriptSerializer().Serialize(shortlistedSystems.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray());
+            panelCallbacks.SaveString?.Invoke("shortlisted_systems", json);
+        }
+
+        private void RenderShortlist()
+        {
+            shortlistGrid.Rows.Clear();
+            foreach (var name in shortlistedSystems.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            {
+                var index = shortlistGrid.Rows.Add(name);
+                shortlistGrid.Rows[index].Tag = name;
+            }
+            removeShortlisted.Enabled = false;
+            pushShortlist.Enabled = shortlistedSystems.Count > 0 && panelCallbacks?.PushStars != null;
+        }
+
+        private void RemoveSelectedShortlistEntries()
+        {
+            var names = shortlistGrid.SelectedRows.Cast<DataGridViewRow>()
+                .Select(row => row.Tag as string).Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
+            foreach (var name in names) shortlistedSystems.Remove(name);
+            if (names.Count > 0)
+            {
+                SaveShortlist();
+                RenderShortlist();
+                UpdateShortlistCurrentButton();
+                status.Text = names.Count + (names.Count == 1 ? " system" : " systems") + " removed from the shortlist.";
+            }
+        }
+
+        private void PushShortlistedSystems()
+        {
+            var names = shortlistedSystems.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+            status.Text = panelCallbacks.PushStars("expedition", names)
+                ? "Shortlist sent to the Expedition panel." : "EDDiscovery could not accept the shortlist.";
+        }
+
+        private void UpdateShortlistCurrentButton()
+        {
+            if (origin == null) { shortlistCurrent.Text = "☆ Shortlist current"; return; }
+            shortlistCurrent.Text = shortlistedSystems.Contains(origin.Name) ? "★ Remove current" : "☆ Shortlist current";
         }
 
         private ShipProfile ReadShip(EDDDLLIF.JournalEntry entry)

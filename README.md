@@ -25,6 +25,8 @@ commander's current star system. The first MVP:
   score cutoff before candidates are admitted to the route;
 - supports a configurable percentage fallback for coefficients whose source
   data is unavailable;
+- keeps a persistent shortlist of systems favourited while they are being
+  visited and can send that shortlist to the Expedition panel;
 - pushes the resulting star list into EDDiscovery's Expedition panel.
 
 This is an independent, unofficial project and is not endorsed by Frontier

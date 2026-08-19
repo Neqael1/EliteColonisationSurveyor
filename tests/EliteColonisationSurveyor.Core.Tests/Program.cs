@@ -8,6 +8,7 @@ static StarSystem Star(string name, double x, double y = 0, long population = 0,
 void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
 
 var scorer = new CandidateScorer();
+Assert(new SearchSettings().RadiusLy == 15, "Default search radius must be 15 ly");
 var ranked = scorer.Rank(new[] { Star("good", 5), Star("populated", 6, population: 100), Star("permit", 7, permit: true), Star("outside", 60) }, new SearchSettings { RadiusLy = 50 });
 Assert(ranked.Count == 1 && ranked[0].Name == "good", "Candidate filters failed");
 
