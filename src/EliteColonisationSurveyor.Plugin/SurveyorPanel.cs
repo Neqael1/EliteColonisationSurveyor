@@ -24,6 +24,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly CheckBox unpopulated = new CheckBox { Text = "Exclude colonised", Checked = true, AutoSize = true };
         private readonly CheckBox noPermit = new CheckBox { Text = "Exclude permit-locked", Checked = true, AutoSize = true };
         private readonly CheckBox explorationMode = new CheckBox { Text = "Exploration mode (no EDSM body data)", AutoSize = true };
+        private readonly NumericUpDown explorationBridges = new NumericUpDown { Minimum = 0, Maximum = 10, Value = 2, Width = 48, Enabled = false };
         private readonly CheckBox useMinimumScore = new CheckBox { Text = "Minimum score", AutoSize = true };
         private readonly NumericUpDown minimumScore = new NumericUpDown { Minimum = -1000, Maximum = 1000, Value = 75, DecimalPlaces = 1, Width = 70, Enabled = false };
         private readonly Button generate = new Button { Text = "Generate route", AutoSize = true };
@@ -82,10 +83,13 @@ namespace EliteColonisationSurveyor.Plugin
                 new Label { Text = "Radius (ly)", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, radius,
                 new Label { Text = "Max systems", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, maximum,
                 new Label { Text = "Pattern", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, searchPattern,
-                unpopulated, noPermit, explorationMode, useMinimumScore, minimumScore, generate, push,
+                unpopulated, noPermit, explorationMode,
+                new Label { Text = "Known bridges per gap", AutoSize = true, Padding = new Padding(4, 6, 0, 0) }, explorationBridges,
+                useMinimumScore, minimumScore, generate, push,
                 copyNext, autoCopyNext, shortlistCurrent
             });
             useMinimumScore.CheckedChanged += (_, __) => minimumScore.Enabled = useMinimumScore.Checked;
+            explorationMode.CheckedChanged += (_, __) => explorationBridges.Enabled = explorationMode.Checked;
             unpopulated.CheckedChanged += (_, __) => UpdateColonisationWeightState();
             var details = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6) };
             details.Controls.Add(ship);
@@ -96,6 +100,7 @@ namespace EliteColonisationSurveyor.Plugin
 
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "#", Width = 45 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "State", Width = 75 });
+            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Data", Width = 105 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "System", Width = 230 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Leg (ly)", Width = 75 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "From centre", Width = 90 });
@@ -151,6 +156,7 @@ namespace EliteColonisationSurveyor.Plugin
             useMinimumScore.Checked = (callbacks.GetInt?.Invoke("minimum_score_enabled", 0) ?? 0) != 0;
             minimumScore.Value = Clamp(callbacks.GetDouble?.Invoke("minimum_score", 75) ?? 75, minimumScore.Minimum, minimumScore.Maximum);
             explorationMode.Checked = (callbacks.GetInt?.Invoke("exploration_mode", 0) ?? 0) != 0;
+            explorationBridges.Value = Clamp(callbacks.GetInt?.Invoke("exploration_bridges", 2) ?? 2, explorationBridges.Minimum, explorationBridges.Maximum);
             autoCopyNext.Checked = (callbacks.GetInt?.Invoke("auto_copy_next", 0) ?? 0) != 0;
             LoadScoreWeights(callbacks);
             LoadShortlist(callbacks);
@@ -215,6 +221,7 @@ namespace EliteColonisationSurveyor.Plugin
                     RadiusLy = (double)radius.Value, MaximumSystems = (int)maximum.Value,
                     ExcludeColonised = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked,
                     OnlySystemsWithoutBodyData = explorationMode.Checked,
+                    MaximumBridgeSystems = (int)explorationBridges.Value,
                     Pattern = (SearchPattern)searchPattern.SelectedIndex, Weights = GetScoreWeights(),
                     MinimumScore = useMinimumScore.Checked ? (double?)minimumScore.Value : null
                 };
@@ -232,7 +239,12 @@ namespace EliteColonisationSurveyor.Plugin
                 status.Text = "Loading body details for " + preliminary.Count + " candidates from EDSM…";
                 await edsm.EnrichBodiesAsync(preliminary, cancellation.Token);
                 var ranked = scorer.Rank(preliminary, settings);
-                route = planner.Plan(origin, ranked, currentShip.JumpRange, settings.Pattern);
+                if (settings.OnlySystemsWithoutBodyData && settings.MaximumBridgeSystems > 0)
+                {
+                    var bridges = preliminary.Where(x => x.BodyDataLookupSucceeded && x.BodyDataAvailable);
+                    route = planner.PlanWithBridges(origin, ranked, bridges, currentShip.JumpRange, settings.Pattern, settings.MaximumBridgeSystems);
+                }
+                else route = planner.Plan(origin, ranked, currentShip.JumpRange, settings.Pattern);
                 completedRouteIndex = 0;
                 RenderRoute();
                 routeMap.SetRoute(route);
@@ -242,12 +254,17 @@ namespace EliteColonisationSurveyor.Plugin
                 panelCallbacks.SaveInt?.Invoke("minimum_score_enabled", useMinimumScore.Checked ? 1 : 0);
                 panelCallbacks.SaveDouble?.Invoke("minimum_score", (double)minimumScore.Value);
                 panelCallbacks.SaveInt?.Invoke("exploration_mode", explorationMode.Checked ? 1 : 0);
+                panelCallbacks.SaveInt?.Invoke("exploration_bridges", settings.MaximumBridgeSystems);
                 panelCallbacks.SaveInt?.Invoke("auto_copy_next", autoCopyNext.Checked ? 1 : 0);
                 SaveScoreWeights();
-                var skipped = ranked.Count - (route.Count - 1);
+                var targetCount = route.Skip(1).Count(x => !x.IsRouteBridge);
+                var bridgeCount = route.Skip(1).Count(x => x.IsRouteBridge);
+                var skipped = ranked.Count - targetCount;
                 status.Text = explorationMode.Checked && route.Count <= 1
                     ? "No systems with confirmed missing EDSM body data matched the current search."
-                    : (route.Count - 1) + " candidates, " + RoutePlanner.TotalDistance(route).ToString("0.0") + " ly route"
+                    : targetCount + (settings.OnlySystemsWithoutBodyData ? " exploration targets" : " candidates")
+                        + (bridgeCount > 0 ? ", " + bridgeCount + " known-data bridges" : "")
+                        + ", " + RoutePlanner.TotalDistance(route).ToString("0.0") + " ly route"
                         + (skipped > 0 ? " — " + skipped + " unreachable" : "");
                 push.Enabled = route.Count > 1 && panelCallbacks.PushStars != null;
                 UpdateRouteProgressDisplay();
@@ -268,7 +285,8 @@ namespace EliteColonisationSurveyor.Plugin
             {
                 var system = route[i];
                 var state = i <= completedRouteIndex ? "Visited" : i == completedRouteIndex + 1 ? "Next" : "Pending";
-                var rowIndex = grid.Rows.Add(i, state, system.Name,
+                var dataState = system.IsRouteBridge ? "Known bridge" : system.BodyDataLookupSucceeded && !system.BodyDataAvailable ? "No body data" : "Known/unknown";
+                var rowIndex = grid.Rows.Add(i, state, dataState, system.Name,
                     route[i - 1].Coordinates.DistanceTo(system.Coordinates).ToString("0.00"),
                     system.DistanceFromCentre.ToString("0.00"), system.CandidateScore.ToString("0.0"), system.PrimaryStarType ?? "?", system.ScoreBreakdown);
                 if (i <= completedRouteIndex)

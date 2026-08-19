@@ -107,4 +107,15 @@ route = new RoutePlanner().Plan(origin, candidates, 11, SearchPattern.JumpSafe);
 for (var i = 1; i < route.Count; i++)
     Assert(route[i - 1].Coordinates.DistanceTo(route[i].Coordinates) <= 11.001, "Jump-safe pattern produced an unsafe leg");
 
+var explorationTarget = Star("unexplored-target", 30);
+var knownBridges = new List<StarSystem> { Star("known-bridge-1", 10), Star("known-bridge-2", 20) };
+route = new RoutePlanner().PlanWithBridges(origin, new[] { explorationTarget }, knownBridges, 10, SearchPattern.Balanced, 2);
+Assert(route.Count == 4 && route[3].Name == "unexplored-target", "Known systems did not bridge an exploration target");
+Assert(route[1].IsRouteBridge && route[2].IsRouteBridge && !route[3].IsRouteBridge, "Exploration bridge systems were not labelled correctly");
+for (var i = 1; i < route.Count; i++)
+    Assert(route[i - 1].Coordinates.DistanceTo(route[i].Coordinates) <= 10.001, "Exploration bridge route exceeded the ship jump range");
+
+route = new RoutePlanner().PlanWithBridges(origin, new[] { explorationTarget }, knownBridges, 10, SearchPattern.Balanced, 1);
+Assert(route.Count == 1, "Exploration route exceeded the configured bridge-system limit");
+
 Console.WriteLine("All core tests passed.");

@@ -54,6 +54,7 @@ namespace EliteColonisationSurveyor.Core
         public int ResourceBodyCount { get; set; }
         public int ValuableRingCount { get; set; }
         public double NearestUsefulArrivalLs { get; set; }
+        public bool IsRouteBridge { get; set; }
 
         public bool IsColonised => Population > 0
             || !string.IsNullOrWhiteSpace(Allegiance)
@@ -77,6 +78,7 @@ namespace EliteColonisationSurveyor.Core
         public bool ExcludePermitLocked { get; set; } = true;
         public bool PreferScoopableStars { get; set; } = true;
         public bool OnlySystemsWithoutBodyData { get; set; }
+        public int MaximumBridgeSystems { get; set; } = 2;
         public SearchPattern Pattern { get; set; } = SearchPattern.Balanced;
         public ScoreWeights Weights { get; set; } = new ScoreWeights();
         public double? MinimumScore { get; set; }
