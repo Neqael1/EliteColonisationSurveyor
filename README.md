@@ -39,12 +39,16 @@ Developments or the EDDiscovery team.
 1. Open the [latest release](https://github.com/Neqael1/EliteColonisationSurveyor/releases/latest).
 2. Download the `EliteColonisationSurveyor-<version>.zip` file from the
    release's **Assets** section.
-3. Close EDDiscovery.
-4. Extract both DLL files from the ZIP into EDDiscovery's extension DLL
+3. In File Explorer, right-click the downloaded ZIP, select **Properties**,
+   tick **Unblock** near the bottom of the **General** tab, and click
+   **Apply**. Do this before extracting the ZIP; otherwise Windows may prevent
+   EDDiscovery from loading the extracted DLLs without showing a useful error.
+4. Close EDDiscovery.
+5. Extract both DLL files from the ZIP into EDDiscovery's extension DLL
    directory. This is normally `%LOCALAPPDATA%\EDDiscovery\DLL`; EDDiscovery's
    add-on settings also show the directory it is using.
-5. Start EDDiscovery and approve the newly detected extension when prompted.
-6. Open the panel selector and add **Colonisation Surveyor**.
+6. Start EDDiscovery and approve the newly detected extension when prompted.
+7. Open the panel selector and add **Colonisation Surveyor**.
 
 Keep both files together:
 
@@ -57,6 +61,15 @@ or earlier, remove the old extension-directory copy before starting EDDiscovery.
 
 To upgrade, close EDDiscovery and replace the existing files with those from
 the newer release. To uninstall, close EDDiscovery and remove both files.
+
+If the plugin was extracted before the ZIP was unblocked, close EDDiscovery,
+right-click each installed plugin DLL, select **Properties**, tick **Unblock**,
+and click **Apply**. Alternatively, open PowerShell and run:
+
+```powershell
+Get-ChildItem "$env:LOCALAPPDATA\EDDiscovery\DLL\EliteColonisationSurveyor*.dll" |
+    Unblock-File
+```
 
 ## Build
 
