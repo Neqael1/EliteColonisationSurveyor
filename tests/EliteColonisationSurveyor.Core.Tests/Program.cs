@@ -19,7 +19,7 @@ Assert(ranked.Count == 1 && ranked[0].Name == "uninhabited", "Colonised-system m
 var scoopable = Star("scoopable", 20); scoopable.PrimaryStarType = "G (White-Yellow) Star";
 var nonScoopable = Star("non-scoopable", 5); nonScoopable.PrimaryStarType = "T Tauri Star";
 ranked = scorer.Rank(new[] { nonScoopable, scoopable }, new SearchSettings {
-    RadiusLy = 50, Weights = new ScoreWeights { Uncolonised = 0, NoPermitRequired = 0, ScoopablePrimary = 100, NearCentre = 0 }
+    RadiusLy = 50, Weights = new ScoreWeights { Uncolonised = 0, NoPermitRequired = 0, ScoopablePrimary = 100, NearCentre = 0, UnknownDataPercent = 0 }
 });
 Assert(ranked[0].Name == "scoopable" && ranked[0].CandidateScore == 100, "Custom scoopable coefficient was not applied");
 
@@ -34,11 +34,42 @@ detailed.ResourceBodyCount = 3; detailed.ValuableRingCount = 1; detailed.Nearest
 ranked = scorer.Rank(new[] { Star("basic", 10), detailed }, new SearchSettings {
     RadiusLy = 50, MinimumScore = 30, Weights = new ScoreWeights {
         Uncolonised = 0, NoPermitRequired = 0, ScoopablePrimary = 0, NearCentre = 0,
-        BodySuitability = 40, ResourcePotential = 20, ArrivalConvenience = 10, DataConfidence = 5
+        BodySuitability = 40, ResourcePotential = 20, ArrivalConvenience = 10, DataConfidence = 5,
+        UnknownDataPercent = 0
     }
 });
 Assert(ranked.Count == 1 && ranked[0].Name == "detailed", "Detailed scoring or minimum-score cutoff failed");
 Assert(ranked[0].ScoreBreakdown.Contains("body suitability") && ranked[0].ScoreBreakdown.Contains("resources"), "Score breakdown omitted detailed factors");
+
+var unknown = Star("unknown", 10);
+ranked = scorer.Rank(new[] { unknown }, new SearchSettings {
+    RadiusLy = 50, ExcludeColonised = false, Weights = new ScoreWeights {
+        Uncolonised = 0, NoPermitRequired = 0, ScoopablePrimary = 0, NearCentre = 0, StellarHazard = 0,
+        BodySuitability = 40, ResourcePotential = 20, ArrivalConvenience = 10, DataConfidence = 6,
+        UnknownDataPercent = 25
+    }
+});
+Assert(ranked[0].CandidateScore == 19, "Unknown body data did not use the configured percentage of each coefficient");
+Assert(ranked[0].ScoreBreakdown.Contains("unknown default"), "Unknown-data fallback was omitted from the score breakdown");
+
+var knownEmpty = Star("known-empty", 10); knownEmpty.BodyDataAvailable = true;
+ranked = scorer.Rank(new[] { knownEmpty }, new SearchSettings {
+    RadiusLy = 50, ExcludeColonised = false, Weights = new ScoreWeights {
+        Uncolonised = 0, NoPermitRequired = 0, ScoopablePrimary = 0, NearCentre = 0, StellarHazard = 0,
+        BodySuitability = 40, ResourcePotential = 20, ArrivalConvenience = 10, DataConfidence = 6,
+        UnknownDataPercent = 25
+    }
+});
+Assert(ranked[0].CandidateScore == 0, "Known zero body data incorrectly received the unknown-data fallback");
+
+ranked = scorer.Rank(new[] { Star("excluded-colonisation-score", 10) }, new SearchSettings {
+    RadiusLy = 50, ExcludeColonised = true, Weights = new ScoreWeights {
+        Uncolonised = 100, NoPermitRequired = 0, ScoopablePrimary = 0, NearCentre = 0,
+        BodySuitability = 0, ResourcePotential = 0, ArrivalConvenience = 0, StellarHazard = 0,
+        DataConfidence = 0, UnknownDataPercent = 0
+    }
+});
+Assert(ranked[0].CandidateScore == 0, "Habitation coefficients were applied while colonised systems were excluded");
 
 var hazard = Star("hazard", 10); hazard.PrimaryStarType = "Neutron Star";
 ranked = scorer.Rank(new[] { hazard }, new SearchSettings { RadiusLy = 50, Weights = new ScoreWeights { StellarHazard = -50 } });

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>EliteColonisationSurveyor.Installer</AssemblyName>
+    <RootNamespace>EliteColonisationSurveyor.Installer</RootNamespace>
+    <LangVersion>7.3</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\EliteColonisationSurveyor.Core\EliteColonisationSurveyor.Core.csproj"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\EliteColonisationSurveyor.Plugin\EliteColonisationSurveyor.Plugin.csproj"
+                      ReferenceOutputAssembly="false" />
+    <EmbeddedResource Include="..\EliteColonisationSurveyor.Core\bin\$(Configuration)\netstandard2.0\EliteColonisationSurveyor.Core.dll"
+                      LogicalName="Payload.EliteColonisationSurveyor.Core.dll" />
+    <EmbeddedResource Include="..\EliteColonisationSurveyor.Plugin\bin\$(Configuration)\net48\EliteColonisationSurveyor.Plugin.dll"
+                      LogicalName="Payload.EliteColonisationSurveyor.Plugin.dll" />
+  </ItemGroup>
+</Project>

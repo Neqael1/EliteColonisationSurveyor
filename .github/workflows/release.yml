@@ -1,0 +1,51 @@
+name: Build release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build
+        run: dotnet build EliteColonisationSurveyor.sln -c Release
+
+      - name: Test
+        run: dotnet run --project tests/EliteColonisationSurveyor.Core.Tests/EliteColonisationSurveyor.Core.Tests.csproj -c Release --no-build
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $package = "EliteColonisationSurveyor-$version"
+          New-Item -ItemType Directory -Path "artifacts/$package"
+          Copy-Item "src/EliteColonisationSurveyor.Core/bin/Release/netstandard2.0/EliteColonisationSurveyor.Core.dll" "artifacts/$package/"
+          Copy-Item "src/EliteColonisationSurveyor.Plugin/bin/Release/net48/EliteColonisationSurveyor.Plugin.dll" "artifacts/$package/"
+          Compress-Archive -Path "artifacts/$package/*" -DestinationPath "artifacts/$package.zip"
+          Copy-Item "src/EliteColonisationSurveyor.Installer/bin/Release/net48/EliteColonisationSurveyor.Installer.exe" "artifacts/$package-Setup.exe"
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          $zip = "artifacts/EliteColonisationSurveyor-$version.zip"
+          $installer = "artifacts/EliteColonisationSurveyor-$version-Setup.exe"
+          if (gh release view "${{ github.ref_name }}" 2>$null) {
+            gh release upload "${{ github.ref_name }}" $zip $installer --clobber
+          } else {
+            gh release create "${{ github.ref_name }}" $zip $installer --generate-notes
+          }
