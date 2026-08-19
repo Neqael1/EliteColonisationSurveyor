@@ -53,6 +53,14 @@ ranked = scorer.Rank(new[] { unknown }, new SearchSettings {
 Assert(ranked[0].CandidateScore == 19, "Unknown body data did not use the configured percentage of each coefficient");
 Assert(ranked[0].ScoreBreakdown.Contains("unknown default"), "Unknown-data fallback was omitted from the score breakdown");
 
+var confirmedNoBodies = Star("confirmed-no-bodies", 10); confirmedNoBodies.BodyDataLookupSucceeded = true;
+var lookupFailed = Star("lookup-failed", 11);
+var knownBodies = Star("known-bodies", 12); knownBodies.BodyDataLookupSucceeded = true; knownBodies.BodyDataAvailable = true;
+ranked = scorer.Rank(new[] { confirmedNoBodies, lookupFailed, knownBodies }, new SearchSettings {
+    RadiusLy = 50, OnlySystemsWithoutBodyData = true
+});
+Assert(ranked.Count == 1 && ranked[0].Name == "confirmed-no-bodies", "Exploration mode did not require confirmed missing body data");
+
 var knownEmpty = Star("known-empty", 10); knownEmpty.BodyDataAvailable = true;
 ranked = scorer.Rank(new[] { knownEmpty }, new SearchSettings {
     RadiusLy = 50, ExcludeColonised = false, Weights = new ScoreWeights {
