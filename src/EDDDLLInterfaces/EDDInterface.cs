@@ -19,6 +19,7 @@ namespace EDDDLLInterfaces
             [FieldOffset(72)] public double y;
             [FieldOffset(80)] public double z;
             [FieldOffset(112), MarshalAs(UnmanagedType.BStr)] public string shiptype;
+            [FieldOffset(144), MarshalAs(UnmanagedType.BStr)] public string eventid;
             [FieldOffset(168)] public int totalrecords;
             [FieldOffset(176), MarshalAs(UnmanagedType.BStr)] public string json;
             [FieldOffset(200), MarshalAs(UnmanagedType.BStr)] public string shipident;

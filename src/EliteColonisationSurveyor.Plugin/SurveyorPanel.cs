@@ -166,16 +166,36 @@ namespace EliteColonisationSurveyor.Plugin
         private void OnLocationChanged(EDDDLLIF.JournalEntry entry)
         {
             if (InvokeRequired) { BeginInvoke(new Action(() => OnLocationChanged(entry))); return; }
+            if (string.IsNullOrWhiteSpace(entry.systemname)) return;
+            var isJump = IsFsdJump(entry);
             origin = new StarSystem { Name = entry.systemname, Coordinates = new Coordinates { X = entry.x, Y = entry.y, Z = entry.z } };
             centre.Text = entry.systemname;
             currentShip = ReadShip(entry);
             ship.Text = "Ship: " + (currentShip.Name ?? currentShip.Type ?? "unknown")
                       + (currentShip.JumpRange > 0 ? " — " + currentShip.JumpRange.ToString("0.0") + " ly jump" : " — jump range unavailable");
-            status.Text = "Ready";
+            if (!isJump) status.Text = "Ready";
             shortlistCurrent.Enabled = true;
             UpdateShortlistCurrentButton();
-            if (entry.name != null && entry.name.Equals("FSDJump", StringComparison.OrdinalIgnoreCase))
+            if (isJump)
                 AdvanceRouteProgress(entry.systemname);
+        }
+
+        private static bool IsFsdJump(EDDDLLIF.JournalEntry entry)
+        {
+            if (string.Equals(entry.eventid, "FSDJump", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry.name, "FSDJump", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry.name, "FSD Jump", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (string.IsNullOrWhiteSpace(entry.json)) return false;
+            try
+            {
+                var journal = new JavaScriptSerializer().DeserializeObject(entry.json) as IDictionary<string, object>;
+                object eventName;
+                return journal != null && journal.TryGetValue("event", out eventName)
+                    && string.Equals(Convert.ToString(eventName), "FSDJump", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
 
         private async Task GenerateAsync()
@@ -670,7 +690,7 @@ namespace EliteColonisationSurveyor.Plugin
         public void ControlTextVisibleChange(bool on) { }
         void EDDDLLIF.IEDDPanelExtension.CursorChanged(EDDDLLIF.JournalEntry je) => OnLocationChanged(je);
         public void NewFilteredJournal(EDDDLLIF.JournalEntry je) => OnLocationChanged(je);
-        public void NewUnfilteredJournal(EDDDLLIF.JournalEntry je) { }
+        public void NewUnfilteredJournal(EDDDLLIF.JournalEntry je) => OnLocationChanged(je);
         public void HistoryChange(int count, string commander, bool beta, bool legacy) { }
         public void NewUIEvent(string jsonui) { }
         public void NewTarget(Tuple<string, double, double, double> target) { }
