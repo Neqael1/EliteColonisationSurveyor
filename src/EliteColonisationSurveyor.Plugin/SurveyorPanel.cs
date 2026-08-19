@@ -268,9 +268,9 @@ namespace EliteColonisationSurveyor.Plugin
 
         private void AdvanceRouteProgress(string systemName)
         {
-            if (route.Count <= 1 || string.IsNullOrWhiteSpace(systemName)) return;
-
-            var reachedIndex = completedRouteIndex + 1;
+            if (string.IsNullOrWhiteSpace(systemName)) return;
+            var reachedIndex = NextWaypointIndex(route.Count, completedRouteIndex);
+            if (reachedIndex < 0) return;
             if (!route[reachedIndex].Name.Equals(systemName, StringComparison.OrdinalIgnoreCase)) return;
 
             completedRouteIndex = reachedIndex;
@@ -284,6 +284,13 @@ namespace EliteColonisationSurveyor.Plugin
             // only advances once, so automatic copying is naturally de-duplicated.
             if (autoCopyNext.Checked && completedRouteIndex < route.Count - 1)
                 CopyNextWaypoint(false);
+        }
+
+        private static int NextWaypointIndex(int routeCount, int completedIndex)
+        {
+            return routeCount > 1 && completedIndex >= 0 && completedIndex < routeCount - 1
+                ? completedIndex + 1
+                : -1;
         }
 
         private void UpdateRouteProgressDisplay()
