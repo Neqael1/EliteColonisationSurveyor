@@ -40,20 +40,23 @@ Developments or the EDDiscovery team.
 2. Download the `EliteColonisationSurveyor-<version>.zip` file from the
    release's **Assets** section.
 3. Close EDDiscovery.
-4. Extract all three DLL files from the ZIP into EDDiscovery's extension DLL
+4. Extract both DLL files from the ZIP into EDDiscovery's extension DLL
    directory. This is normally `%LOCALAPPDATA%\EDDiscovery\DLL`; EDDiscovery's
    add-on settings also show the directory it is using.
 5. Start EDDiscovery and approve the newly detected extension when prompted.
 6. Open the panel selector and add **Colonisation Surveyor**.
 
-Keep all three files together:
+Keep both files together:
 
 - `EliteColonisationSurveyor.Plugin.dll`
 - `EliteColonisationSurveyor.Core.dll`
-- `EDDDLLInterfaces.dll`
+
+Do not copy an `EDDDLLInterfaces.dll` into the extension directory. EDDiscovery
+supplies the matching interface assembly itself. If upgrading from version 0.5.0
+or earlier, remove the old extension-directory copy before starting EDDiscovery.
 
 To upgrade, close EDDiscovery and replace the existing files with those from
-the newer release. To uninstall, close EDDiscovery and remove the three files.
+the newer release. To uninstall, close EDDiscovery and remove both files.
 
 ## Build
 
@@ -63,12 +66,11 @@ On Windows with Visual Studio 2022 or the Build Tools installed:
 dotnet build .\EliteColonisationSurveyor.sln -c Release
 ```
 
-Copy these three output files to EDDiscovery's extension DLL directory (shown in
+Copy these two output files to EDDiscovery's extension DLL directory (shown in
 EDDiscovery's extension/add-on settings):
 
 - `EliteColonisationSurveyor.Plugin.dll`
 - `EliteColonisationSurveyor.Core.dll`
-- `EDDDLLInterfaces.dll`
 
 Restart EDDiscovery, approve the newly detected extension, and add the
 **Colonisation Surveyor** panel from the panel selector.

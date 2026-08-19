@@ -3,6 +3,9 @@
     <TargetFramework>net48</TargetFramework>
     <AssemblyName>EDDDLLInterfaces</AssemblyName>
     <RootNamespace>EDDDLLInterfaces</RootNamespace>
+    <!-- Must match the assembly identity shipped by EDDiscovery. The plugin
+         binds to EDDiscovery's copy at runtime; this project is compile-only. -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <LangVersion>7.3</LangVersion>
   </PropertyGroup>
   <ItemGroup><Reference Include="System.Drawing" /></ItemGroup>

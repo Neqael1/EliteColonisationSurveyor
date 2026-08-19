@@ -9,7 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\EliteColonisationSurveyor.Core\EliteColonisationSurveyor.Core.csproj" />
-    <ProjectReference Include="..\EDDDLLInterfaces\EDDDLLInterfaces.csproj" />
+    <ProjectReference Include="..\EDDDLLInterfaces\EDDDLLInterfaces.csproj" Private="false" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
