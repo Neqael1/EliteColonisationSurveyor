@@ -27,8 +27,11 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly NumericUpDown minimumScore = new NumericUpDown { Minimum = -1000, Maximum = 1000, Value = 75, DecimalPlaces = 1, Width = 70, Enabled = false };
         private readonly Button generate = new Button { Text = "Generate route", AutoSize = true };
         private readonly Button push = new Button { Text = "Send to Expedition", AutoSize = true, Enabled = false };
+        private readonly Button copyNext = new Button { Text = "Copy next waypoint", AutoSize = true, Enabled = false };
+        private readonly CheckBox autoCopyNext = new CheckBox { Text = "Auto-copy after jump", AutoSize = true };
         private readonly Button shortlistCurrent = new Button { Text = "☆ Shortlist current", AutoSize = true, Enabled = false };
         private readonly Label status = new Label { AutoSize = true, Text = "Waiting for current system…" };
+        private readonly Label nextWaypoint = new Label { AutoSize = true, Text = "Next waypoint: generate a route" };
         private readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = false, AllowUserToAddRows = false };
         private readonly DataGridView shortlistGrid = new DataGridView {
             Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = false, AllowUserToAddRows = false,
@@ -62,6 +65,7 @@ namespace EliteColonisationSurveyor.Plugin
         private ulong cachedShipId = ulong.MaxValue;
         private IReadOnlyList<StarSystem> route = new List<StarSystem>();
         private CancellationTokenSource cancellation;
+        private int completedRouteIndex;
         private readonly HashSet<string> shortlistedSystems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private decimal configuredUncolonisedWeight = 60;
         private decimal configuredColonisedWeight = 5;
@@ -77,7 +81,8 @@ namespace EliteColonisationSurveyor.Plugin
                 new Label { Text = "Radius (ly)", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, radius,
                 new Label { Text = "Max systems", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, maximum,
                 new Label { Text = "Pattern", AutoSize = true, Padding = new Padding(8, 6, 0, 0) }, searchPattern,
-                unpopulated, noPermit, useMinimumScore, minimumScore, generate, push, shortlistCurrent
+                unpopulated, noPermit, useMinimumScore, minimumScore, generate, push,
+                copyNext, autoCopyNext, shortlistCurrent
             });
             useMinimumScore.CheckedChanged += (_, __) => minimumScore.Enabled = useMinimumScore.Checked;
             unpopulated.CheckedChanged += (_, __) => UpdateColonisationWeightState();
@@ -85,8 +90,11 @@ namespace EliteColonisationSurveyor.Plugin
             details.Controls.Add(ship);
             details.Controls.Add(new Label { Text = "   " });
             details.Controls.Add(status);
+            details.Controls.Add(new Label { Text = "   " });
+            details.Controls.Add(nextWaypoint);
 
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "#", Width = 45 });
+            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "State", Width = 75 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "System", Width = 230 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Leg (ly)", Width = 75 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "From centre", Width = 90 });
@@ -121,6 +129,8 @@ namespace EliteColonisationSurveyor.Plugin
             Controls.Add(inputs);
             generate.Click += async (_, __) => await GenerateAsync();
             push.Click += (_, __) => PushRoute();
+            copyNext.Click += (_, __) => CopyNextWaypoint(true);
+            autoCopyNext.CheckedChanged += (_, __) => panelCallbacks?.SaveInt?.Invoke("auto_copy_next", autoCopyNext.Checked ? 1 : 0);
             shortlistCurrent.Click += (_, __) => ToggleCurrentShortlist();
         }
 
@@ -139,6 +149,7 @@ namespace EliteColonisationSurveyor.Plugin
             searchPattern.SelectedIndex = Math.Max(0, Math.Min(searchPattern.Items.Count - 1, callbacks.GetInt?.Invoke("pattern", 0) ?? 0));
             useMinimumScore.Checked = (callbacks.GetInt?.Invoke("minimum_score_enabled", 0) ?? 0) != 0;
             minimumScore.Value = Clamp(callbacks.GetDouble?.Invoke("minimum_score", 75) ?? 75, minimumScore.Minimum, minimumScore.Maximum);
+            autoCopyNext.Checked = (callbacks.GetInt?.Invoke("auto_copy_next", 0) ?? 0) != 0;
             LoadScoreWeights(callbacks);
             LoadShortlist(callbacks);
             UpdateColonisationWeightState();
@@ -163,6 +174,8 @@ namespace EliteColonisationSurveyor.Plugin
             status.Text = "Ready";
             shortlistCurrent.Enabled = true;
             UpdateShortlistCurrentButton();
+            if (entry.name != null && entry.name.Equals("FSDJump", StringComparison.OrdinalIgnoreCase))
+                AdvanceRouteProgress(entry.systemname);
         }
 
         private async Task GenerateAsync()
@@ -193,6 +206,7 @@ namespace EliteColonisationSurveyor.Plugin
                 await edsm.EnrichBodiesAsync(preliminary, cancellation.Token);
                 var ranked = scorer.Rank(preliminary, settings);
                 route = planner.Plan(origin, ranked, currentShip.JumpRange, settings.Pattern);
+                completedRouteIndex = 0;
                 RenderRoute();
                 routeMap.SetRoute(route);
                 panelCallbacks.SaveDouble?.Invoke("radius", settings.RadiusLy);
@@ -200,11 +214,13 @@ namespace EliteColonisationSurveyor.Plugin
                 panelCallbacks.SaveInt?.Invoke("pattern", searchPattern.SelectedIndex);
                 panelCallbacks.SaveInt?.Invoke("minimum_score_enabled", useMinimumScore.Checked ? 1 : 0);
                 panelCallbacks.SaveDouble?.Invoke("minimum_score", (double)minimumScore.Value);
+                panelCallbacks.SaveInt?.Invoke("auto_copy_next", autoCopyNext.Checked ? 1 : 0);
                 SaveScoreWeights();
                 var skipped = ranked.Count - (route.Count - 1);
                 status.Text = (route.Count - 1) + " candidates, " + RoutePlanner.TotalDistance(route).ToString("0.0") + " ly route"
                             + (skipped > 0 ? " — " + skipped + " unreachable" : "");
                 push.Enabled = route.Count > 1 && panelCallbacks.PushStars != null;
+                UpdateRouteProgressDisplay();
             }
             catch (OperationCanceledException) { status.Text = "Search cancelled."; }
             catch (Exception ex)
@@ -221,9 +237,61 @@ namespace EliteColonisationSurveyor.Plugin
             for (var i = 1; i < route.Count; i++)
             {
                 var system = route[i];
-                grid.Rows.Add(i, system.Name,
+                var state = i <= completedRouteIndex ? "Visited" : i == completedRouteIndex + 1 ? "Next" : "Pending";
+                var rowIndex = grid.Rows.Add(i, state, system.Name,
                     route[i - 1].Coordinates.DistanceTo(system.Coordinates).ToString("0.00"),
                     system.DistanceFromCentre.ToString("0.00"), system.CandidateScore.ToString("0.0"), system.PrimaryStarType ?? "?", system.ScoreBreakdown);
+                if (i <= completedRouteIndex)
+                    grid.Rows[rowIndex].DefaultCellStyle.ForeColor = Color.Gray;
+            }
+        }
+
+        private void AdvanceRouteProgress(string systemName)
+        {
+            if (route.Count <= 1 || string.IsNullOrWhiteSpace(systemName)) return;
+
+            var reachedIndex = completedRouteIndex + 1;
+            if (!route[reachedIndex].Name.Equals(systemName, StringComparison.OrdinalIgnoreCase)) return;
+
+            completedRouteIndex = reachedIndex;
+            RenderRoute();
+            UpdateRouteProgressDisplay();
+            status.Text = completedRouteIndex >= route.Count - 1
+                ? "Survey route complete."
+                : "Waypoint reached: " + systemName + ".";
+
+            // PublishLocation and NewFilteredJournal can both deliver the same jump. Progress
+            // only advances once, so automatic copying is naturally de-duplicated.
+            if (autoCopyNext.Checked && completedRouteIndex < route.Count - 1)
+                CopyNextWaypoint(false);
+        }
+
+        private void UpdateRouteProgressDisplay()
+        {
+            var hasNext = route.Count > 1 && completedRouteIndex < route.Count - 1;
+            copyNext.Enabled = hasNext;
+            if (route.Count <= 1)
+                nextWaypoint.Text = "Next waypoint: generate a route";
+            else if (!hasNext)
+                nextWaypoint.Text = "Route complete (" + (route.Count - 1) + "/" + (route.Count - 1) + ")";
+            else
+                nextWaypoint.Text = "Next waypoint: " + route[completedRouteIndex + 1].Name
+                    + " (" + completedRouteIndex + "/" + (route.Count - 1) + ")";
+        }
+
+        private void CopyNextWaypoint(bool announce)
+        {
+            if (route.Count <= 1 || completedRouteIndex >= route.Count - 1) return;
+            var name = route[completedRouteIndex + 1].Name;
+            try
+            {
+                Clipboard.SetText(name);
+                if (announce) status.Text = name + " copied. Paste it into the Galaxy Map search.";
+                else status.Text = "Waypoint reached. Next system copied: " + name + ".";
+            }
+            catch (Exception ex)
+            {
+                status.Text = "Could not copy the next waypoint: " + ex.Message;
             }
         }
 
