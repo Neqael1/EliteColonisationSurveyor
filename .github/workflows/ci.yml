@@ -23,3 +23,9 @@ jobs:
 
       - name: Test
         run: dotnet run --project tests/EliteColonisationSurveyor.Core.Tests/EliteColonisationSurveyor.Core.Tests.csproj -c Release --no-build
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: src/EliteColonisationSurveyor.Installer/bin/Release/net48/EliteColonisationSurveyor.Installer.exe
