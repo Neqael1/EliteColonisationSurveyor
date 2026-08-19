@@ -93,5 +93,6 @@ namespace EliteColonisationSurveyor.Core
         public double ArrivalConvenience { get; set; } = 10;
         public double StellarHazard { get; set; } = -25;
         public double DataConfidence { get; set; } = 5;
+        public double UnknownDataPercent { get; set; } = 50;
     }
 }

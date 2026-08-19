@@ -41,6 +41,9 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly NumericUpDown arrivalWeight = Weight(10);
         private readonly NumericUpDown hazardWeight = Weight(-25);
         private readonly NumericUpDown confidenceWeight = Weight(5);
+        private readonly NumericUpDown unknownDataPercent = new NumericUpDown {
+            Minimum = 0, Maximum = 100, Value = 50, DecimalPlaces = 0, Increment = 5, Width = 90
+        };
         private readonly Label scoreFormula = new Label { AutoSize = true, MaximumSize = new Size(700, 0) };
         private readonly EdsmClient edsm = new EdsmClient();
         private readonly CandidateScorer scorer = new CandidateScorer();
@@ -52,6 +55,9 @@ namespace EliteColonisationSurveyor.Plugin
         private ulong cachedShipId = ulong.MaxValue;
         private IReadOnlyList<StarSystem> route = new List<StarSystem>();
         private CancellationTokenSource cancellation;
+        private decimal configuredUncolonisedWeight = 60;
+        private decimal configuredColonisedWeight = 5;
+        private bool updatingColonisationWeights;
 
         public SurveyorPanel()
         {
@@ -66,6 +72,7 @@ namespace EliteColonisationSurveyor.Plugin
                 unpopulated, noPermit, useMinimumScore, minimumScore, generate, push
             });
             useMinimumScore.CheckedChanged += (_, __) => minimumScore.Enabled = useMinimumScore.Checked;
+            unpopulated.CheckedChanged += (_, __) => UpdateColonisationWeightState();
             var details = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6) };
             details.Controls.Add(ship);
             details.Controls.Add(new Label { Text = "   " });
@@ -122,6 +129,7 @@ namespace EliteColonisationSurveyor.Plugin
             useMinimumScore.Checked = (callbacks.GetInt?.Invoke("minimum_score_enabled", 0) ?? 0) != 0;
             minimumScore.Value = Clamp(callbacks.GetDouble?.Invoke("minimum_score", 75) ?? 75, minimumScore.Minimum, minimumScore.Maximum);
             LoadScoreWeights(callbacks);
+            UpdateColonisationWeightState();
             CurrentLocationReceived += OnLocationChanged;
 
             EDDDLLIF.JournalEntry cached;
@@ -325,18 +333,19 @@ namespace EliteColonisationSurveyor.Plugin
             AddWeightRow(layout, 8, "Resource potential", resourcesWeight, "Normalised from metal-rich worlds and major or pristine rings.");
             AddWeightRow(layout, 9, "Arrival convenience", arrivalWeight, "Rewards useful bodies close to the arrival star; reaches zero at 10,000 ls.");
             AddWeightRow(layout, 10, "Stellar hazard", hazardWeight, "Applied to neutron stars, white dwarfs and black holes.");
-            AddWeightRow(layout, 11, "Data confidence", confidenceWeight, "Scaled by EDSM body-data completeness; unknown data is never treated as zero.");
+            AddWeightRow(layout, 11, "Data confidence", confidenceWeight, "Scaled by EDSM body-data completeness; missing body data uses the configurable unknown default.");
+            AddWeightRow(layout, 12, "Unknown data default (%)", unknownDataPercent, "Percentage of each affected coefficient applied when its source data is unavailable. Known zero values remain zero.");
             var presets = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, Margin = new Padding(3, 12, 3, 3) };
             presets.Items.AddRange(new object[] { "Balanced colony", "Resource extraction", "Scientific outpost", "Logistics hub", "Remote expansion" });
             presets.SelectedIndex = 0;
             var applyPreset = new Button { Text = "Apply preset", AutoSize = true, Margin = new Padding(3, 12, 3, 3) };
             applyPreset.Click += (_, __) => ApplyPreset(presets.SelectedIndex);
-            layout.Controls.Add(presets, 0, 12);
-            layout.Controls.Add(applyPreset, 1, 12);
+            layout.Controls.Add(presets, 0, 13);
+            layout.Controls.Add(applyPreset, 1, 13);
             var reset = new Button { Text = "Restore defaults", AutoSize = true, Margin = new Padding(3, 12, 3, 3) };
             reset.Click += (_, __) => ResetScoreWeights();
-            layout.Controls.Add(reset, 0, 13);
-            layout.Controls.Add(scoreFormula, 0, 14);
+            layout.Controls.Add(reset, 0, 14);
+            layout.Controls.Add(scoreFormula, 0, 15);
             layout.SetColumnSpan(scoreFormula, 3);
             foreach (var control in AllWeightControls())
                 control.ValueChanged += (_, __) => UpdateScoreFormula();
@@ -368,6 +377,7 @@ namespace EliteColonisationSurveyor.Plugin
             , ArrivalConvenience = (double)arrivalWeight.Value
             , StellarHazard = (double)hazardWeight.Value
             , DataConfidence = (double)confidenceWeight.Value
+            , UnknownDataPercent = (double)unknownDataPercent.Value
         };
 
         private void LoadScoreWeights(EDDDLLIF.EDDPanelCallbacks callbacks)
@@ -383,14 +393,17 @@ namespace EliteColonisationSurveyor.Plugin
             arrivalWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_arrival", 10) ?? 10, -500, 500);
             hazardWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_hazard", -25) ?? -25, -500, 500);
             confidenceWeight.Value = Clamp(callbacks.GetDouble?.Invoke("score_confidence", 5) ?? 5, -500, 500);
+            unknownDataPercent.Value = Clamp(callbacks.GetDouble?.Invoke("score_unknown_percent", 50) ?? 50, 0, 100);
+            configuredUncolonisedWeight = uncolonisedWeight.Value;
+            configuredColonisedWeight = colonisedWeight.Value;
             UpdateScoreFormula();
         }
 
         private void SaveScoreWeights()
         {
             var weights = GetScoreWeights();
-            panelCallbacks.SaveDouble?.Invoke("score_uncolonised", weights.Uncolonised);
-            panelCallbacks.SaveDouble?.Invoke("score_colonised", weights.Colonised);
+            panelCallbacks.SaveDouble?.Invoke("score_uncolonised", unpopulated.Checked ? (double)configuredUncolonisedWeight : weights.Uncolonised);
+            panelCallbacks.SaveDouble?.Invoke("score_colonised", unpopulated.Checked ? (double)configuredColonisedWeight : weights.Colonised);
             panelCallbacks.SaveDouble?.Invoke("score_no_permit", weights.NoPermitRequired);
             panelCallbacks.SaveDouble?.Invoke("score_permit", weights.PermitRequired);
             panelCallbacks.SaveDouble?.Invoke("score_scoopable", weights.ScoopablePrimary);
@@ -400,6 +413,7 @@ namespace EliteColonisationSurveyor.Plugin
             panelCallbacks.SaveDouble?.Invoke("score_arrival", weights.ArrivalConvenience);
             panelCallbacks.SaveDouble?.Invoke("score_hazard", weights.StellarHazard);
             panelCallbacks.SaveDouble?.Invoke("score_confidence", weights.DataConfidence);
+            panelCallbacks.SaveDouble?.Invoke("score_unknown_percent", weights.UnknownDataPercent);
         }
 
         private void ResetScoreWeights()
@@ -409,11 +423,15 @@ namespace EliteColonisationSurveyor.Plugin
             scoopableWeight.Value = 15; distanceWeight.Value = 5;
             suitabilityWeight.Value = 25; resourcesWeight.Value = 15;
             arrivalWeight.Value = 10; hazardWeight.Value = -25; confidenceWeight.Value = 5;
+            unknownDataPercent.Value = 50;
+            configuredUncolonisedWeight = 60; configuredColonisedWeight = 5;
+            UpdateColonisationWeightState();
         }
 
         private NumericUpDown[] AllWeightControls() => new[] {
             uncolonisedWeight, colonisedWeight, noPermitWeight, permitWeight, scoopableWeight,
             distanceWeight, suitabilityWeight, resourcesWeight, arrivalWeight, hazardWeight, confidenceWeight
+            , unknownDataPercent
         };
 
         private void ApplyPreset(int preset)
@@ -429,9 +447,40 @@ namespace EliteColonisationSurveyor.Plugin
         {
             scoreFormula.Text = "Score = habitation coefficient + permit coefficient"
                 + " + scoopable coefficient (when applicable)"
-                + " + distance, suitability, resource, arrival, hazard and data-confidence terms. Detailed factors are normalised to 0–1.\n"
+                + " + distance, suitability, resource, arrival, hazard and data-confidence terms. Detailed factors are normalised to 0–1. Unknown inputs use "
+                + unknownDataPercent.Value.ToString("0") + "% of the affected coefficient.\n"
                 + "Current uncolonised, no-permit, scoopable centre example: "
                 + (uncolonisedWeight.Value + noPermitWeight.Value + scoopableWeight.Value + distanceWeight.Value).ToString("0.0");
+        }
+
+        private void UpdateColonisationWeightState()
+        {
+            if (updatingColonisationWeights) return;
+            updatingColonisationWeights = true;
+            try
+            {
+                if (unpopulated.Checked)
+                {
+                    if (uncolonisedWeight.Enabled)
+                    {
+                        configuredUncolonisedWeight = uncolonisedWeight.Value;
+                        configuredColonisedWeight = colonisedWeight.Value;
+                    }
+                    uncolonisedWeight.Value = 0;
+                    colonisedWeight.Value = 0;
+                    uncolonisedWeight.Enabled = false;
+                    colonisedWeight.Enabled = false;
+                }
+                else
+                {
+                    uncolonisedWeight.Enabled = true;
+                    colonisedWeight.Enabled = true;
+                    uncolonisedWeight.Value = configuredUncolonisedWeight;
+                    colonisedWeight.Value = configuredColonisedWeight;
+                }
+                UpdateScoreFormula();
+            }
+            finally { updatingColonisationWeights = false; }
         }
 
         private static decimal Clamp(double value, decimal min, decimal max) => Math.Max(min, Math.Min(max, (decimal)value));
