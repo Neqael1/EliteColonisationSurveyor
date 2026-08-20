@@ -37,6 +37,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly CheckBox useMinimumScore = new CheckBox { Text = "Minimum score", AutoSize = true };
         private readonly NumericUpDown minimumScore = new NumericUpDown { Minimum = -1000, Maximum = 1000, Value = 75, DecimalPlaces = 1, Width = 70, Enabled = false };
         private readonly Button generate = new Button { Size = new Size(34, 30) };
+        private readonly Button stopSearch = new Button { Size = new Size(34, 30), Enabled = false };
         private readonly Button push = new Button { Size = new Size(34, 30), Enabled = false };
         private readonly Button copyNext = new Button { Size = new Size(34, 30), Enabled = false };
         private readonly CheckBox autoCopyNext = new CheckBox { Text = "Auto-copy after jump", AutoSize = true };
@@ -91,17 +92,18 @@ namespace EliteColonisationSurveyor.Plugin
             fieldShape.Items.AddRange(new object[] { "Sphere", "Cone" });
             fieldShape.SelectedIndex = 0;
             explorationSource.Items.AddRange(new object[] { "EDSM", "Spansh + EDSM" });
-            explorationSource.SelectedIndex = 0;
+            explorationSource.SelectedIndex = (int)ExplorationDataSource.Spansh;
             explorationFilter.Items.AddRange(new object[] { "No body data", "Incomplete catalogue", "Below completeness %", "At most known bodies" });
             explorationFilter.SelectedIndex = 0;
             ConfigureToolbarButton(generate, ToolbarIcon.Generate, "Generate route", toolbarToolTips);
+            ConfigureToolbarButton(stopSearch, ToolbarIcon.Stop, "Stop search", toolbarToolTips);
             ConfigureToolbarButton(push, ToolbarIcon.Expedition, "Send route to Expedition", toolbarToolTips);
             ConfigureToolbarButton(copyNext, ToolbarIcon.Copy, "Copy next waypoint", toolbarToolTips);
             ConfigureToolbarButton(shortlistCurrent, ToolbarIcon.Star, "Add current system to shortlist", toolbarToolTips);
             var inputs = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(6), WrapContents = true };
             inputs.Controls.AddRange(new Control[] {
                 new Label { Text = "Current", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, centre,
-                generate, push, copyNext, shortlistCurrent
+                generate, stopSearch, push, copyNext, shortlistCurrent
             });
             useMinimumScore.CheckedChanged += (_, __) => minimumScore.Enabled = useMinimumScore.Checked;
             explorationMode.Text = "Exploration mode";
@@ -156,6 +158,7 @@ namespace EliteColonisationSurveyor.Plugin
             Controls.Add(details);
             Controls.Add(inputs);
             generate.Click += async (_, __) => await GenerateAsync();
+            stopSearch.Click += (_, __) => CancelSearch();
             push.Click += (_, __) => PushRoute();
             copyNext.Click += (_, __) => CopyNextWaypoint(true);
             autoCopyNext.CheckedChanged += (_, __) => panelCallbacks?.SaveInt?.Invoke("auto_copy_next", autoCopyNext.Checked ? 1 : 0);
@@ -183,7 +186,7 @@ namespace EliteColonisationSurveyor.Plugin
             coneDirectionSystem.Text = callbacks.GetString?.Invoke("cone_direction_system", "") ?? "";
             coneAngle.Value = Clamp(callbacks.GetDouble?.Invoke("cone_angle", 45) ?? 45, coneAngle.Minimum, coneAngle.Maximum);
             explorationMode.Checked = (callbacks.GetInt?.Invoke("exploration_mode", 0) ?? 0) != 0;
-            explorationSource.SelectedIndex = Math.Max(0, Math.Min(1, callbacks.GetInt?.Invoke("exploration_source", 0) ?? 0));
+            explorationSource.SelectedIndex = Math.Max(0, Math.Min(1, callbacks.GetInt?.Invoke("exploration_source", 1) ?? 1));
             explorationFilter.SelectedIndex = Math.Max(0, Math.Min(3, callbacks.GetInt?.Invoke("exploration_filter", 0) ?? 0));
             explorationCompleteness.Value = Clamp(callbacks.GetDouble?.Invoke("exploration_completeness", 25) ?? 25, 0, 100);
             explorationKnownBodies.Value = Clamp(callbacks.GetInt?.Invoke("exploration_known_bodies", 0) ?? 0, 0, 100);
@@ -246,6 +249,7 @@ namespace EliteColonisationSurveyor.Plugin
             cancellation?.Cancel();
             cancellation = new CancellationTokenSource();
             generate.Enabled = false;
+            stopSearch.Enabled = true;
             push.Enabled = false;
             status.Text = "Loading nearby systems from EDSM…";
             try
@@ -280,7 +284,9 @@ namespace EliteColonisationSurveyor.Plugin
                     ExcludeColonised = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked,
                     OnlySystemsWithoutBodyData = explorationMode.Checked,
                     MaximumBridgeSystems = (int)explorationBridges.Value,
-                    ExplorationSource = (ExplorationDataSource)explorationSource.SelectedIndex,
+                    ExplorationSource = explorationMode.Checked
+                        ? (ExplorationDataSource)explorationSource.SelectedIndex
+                        : ExplorationDataSource.Edsm,
                     ExplorationFilter = (ExplorationFilterMode)explorationFilter.SelectedIndex,
                     MaximumBodyDataCompleteness = (double)explorationCompleteness.Value,
                     MaximumKnownBodies = (int)explorationKnownBodies.Value,
@@ -363,8 +369,17 @@ namespace EliteColonisationSurveyor.Plugin
             }
             finally {
                 bodyDataProgress.Visible = false;
+                stopSearch.Enabled = false;
                 generate.Enabled = true;
             }
+        }
+
+        private void CancelSearch()
+        {
+            if (cancellation == null || cancellation.IsCancellationRequested) return;
+            stopSearch.Enabled = false;
+            status.Text = "Cancelling search…";
+            cancellation.Cancel();
         }
 
         private void RenderRoute()
@@ -479,7 +494,7 @@ namespace EliteColonisationSurveyor.Plugin
             AddOptionRow(layout, 10, "Exploration", explorationMode,
                 "Prioritise systems matching the selected exploration-data level.");
             AddOptionRow(layout, 11, "Exploration source", explorationSource,
-                "Spansh results are automatically cross-checked against EDSM.");
+                "Exploration defaults to Spansh cross-checked against EDSM; normal surveys always use EDSM.");
             AddOptionRow(layout, 12, "Exploration filter", explorationFilter,
                 "Choose untouched, incomplete, percentage-based, or known-body-count filtering.");
             AddOptionRow(layout, 13, "Maximum completeness (%)", explorationCompleteness,
@@ -616,7 +631,7 @@ namespace EliteColonisationSurveyor.Plugin
             toolbarToolTips.SetToolTip(shortlistCurrent, active ? "Remove current system from shortlist" : "Add current system to shortlist");
         }
 
-        private enum ToolbarIcon { Generate, Expedition, Copy, Star }
+        private enum ToolbarIcon { Generate, Stop, Expedition, Copy, Star }
 
         private static void ConfigureToolbarButton(Button button, ToolbarIcon icon, string tooltip, ToolTip toolTips)
         {
@@ -630,9 +645,10 @@ namespace EliteColonisationSurveyor.Plugin
         private static Bitmap CreateToolbarIcon(ToolbarIcon icon, bool active)
         {
             var bitmap = new Bitmap(20, 20);
+            var iconColor = icon == ToolbarIcon.Stop ? Color.Firebrick : active ? Color.Goldenrod : Color.SteelBlue;
             using (var graphics = Graphics.FromImage(bitmap))
-            using (var pen = new Pen(active ? Color.Goldenrod : Color.SteelBlue, 2f))
-            using (var brush = new SolidBrush(active ? Color.Gold : Color.SteelBlue))
+            using (var pen = new Pen(iconColor, 2f))
+            using (var brush = new SolidBrush(icon == ToolbarIcon.Stop ? Color.IndianRed : active ? Color.Gold : Color.SteelBlue))
             {
                 graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 if (icon == ToolbarIcon.Generate)
@@ -642,6 +658,11 @@ namespace EliteColonisationSurveyor.Plugin
                     graphics.FillEllipse(brush, 1, 13, 5, 5);
                     graphics.FillEllipse(brush, 7, 3, 5, 5);
                     graphics.FillEllipse(brush, 15, 10, 4, 4);
+                }
+                else if (icon == ToolbarIcon.Stop)
+                {
+                    graphics.FillRectangle(brush, 4, 4, 12, 12);
+                    graphics.DrawRectangle(pen, 4, 4, 12, 12);
                 }
                 else if (icon == ToolbarIcon.Expedition)
                 {
