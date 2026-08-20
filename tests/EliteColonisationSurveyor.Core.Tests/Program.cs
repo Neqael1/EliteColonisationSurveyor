@@ -61,6 +61,15 @@ ranked = scorer.Rank(new[] { confirmedNoBodies, lookupFailed, knownBodies }, new
 });
 Assert(ranked.Count == 1 && ranked[0].Name == "confirmed-no-bodies", "Exploration mode did not require confirmed missing body data");
 
+var coneInside = new StarSystem { Name = "cone-inside", Coordinates = new Coordinates { X = 110, Z = 100 }, DistanceFromCentre = 10 };
+var coneOutside = new StarSystem { Name = "cone-outside", Coordinates = new Coordinates { X = 100, Z = 110 }, DistanceFromCentre = 10 };
+var coneBehind = new StarSystem { Name = "cone-behind", Coordinates = new Coordinates { X = 90, Z = 100 }, DistanceFromCentre = 10 };
+ranked = scorer.Rank(new[] { coneInside, coneOutside, coneBehind }, new SearchSettings {
+    RadiusLy = 50, FieldShape = SearchFieldShape.Cone,
+    FieldOrigin = new Coordinates { X = 100, Z = 100 }, ConeDirection = new Coordinates { X = 1 }, ConeAngleDegrees = 60
+});
+Assert(ranked.Count == 1 && ranked[0].Name == "cone-inside", "Cone search geometry did not filter around the configured axis");
+
 var knownEmpty = Star("known-empty", 10); knownEmpty.BodyDataAvailable = true;
 ranked = scorer.Rank(new[] { knownEmpty }, new SearchSettings {
     RadiusLy = 50, ExcludeColonised = false, Weights = new ScoreWeights {
