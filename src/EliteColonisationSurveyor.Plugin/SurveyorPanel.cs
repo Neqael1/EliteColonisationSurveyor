@@ -42,6 +42,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly CheckBox autoCopyNext = new CheckBox { Text = "Auto-copy after jump", AutoSize = true };
         private readonly Button shortlistCurrent = new Button { Size = new Size(34, 30), Enabled = false };
         private readonly Label status = new Label { AutoSize = true, Text = "Waiting for current system…" };
+        private readonly ProgressBar bodyDataProgress = new ProgressBar { Width = 180, Height = 16, Visible = false, Style = ProgressBarStyle.Continuous };
         private readonly Label nextWaypoint = new Label { AutoSize = true, Text = "Next waypoint: generate a route" };
         private readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AutoGenerateColumns = false, AllowUserToAddRows = false };
         private readonly DataGridView shortlistGrid = new DataGridView {
@@ -113,6 +114,7 @@ namespace EliteColonisationSurveyor.Plugin
             details.Controls.Add(ship);
             details.Controls.Add(new Label { Text = "   " });
             details.Controls.Add(status);
+            details.Controls.Add(bodyDataProgress);
             details.Controls.Add(new Label { Text = "   " });
             details.Controls.Add(nextWaypoint);
 
@@ -300,9 +302,18 @@ namespace EliteColonisationSurveyor.Plugin
                     Pattern = settings.Pattern, Weights = settings.Weights
                 };
                 var preliminary = scorer.Rank(systems, preliminarySettings);
-                status.Text = "Loading body details for " + preliminary.Count + " candidates from "
-                    + (settings.ExplorationSource == ExplorationDataSource.Spansh ? "Spansh and EDSM…" : "EDSM…");
-                await edsm.EnrichBodiesAsync(preliminary, settings.ExplorationSource, cancellation.Token);
+                var bodyDataSource = settings.ExplorationSource == ExplorationDataSource.Spansh ? "Spansh and EDSM" : "EDSM";
+                bodyDataProgress.Minimum = 0;
+                bodyDataProgress.Maximum = Math.Max(1, preliminary.Count);
+                bodyDataProgress.Value = 0;
+                bodyDataProgress.Visible = preliminary.Count > 0;
+                status.Text = "Loading body details 0/" + preliminary.Count + " from " + bodyDataSource + "…";
+                var progress = new Progress<int>(completed => {
+                    if (!bodyDataProgress.Visible) return;
+                    bodyDataProgress.Value = Math.Min(completed, bodyDataProgress.Maximum);
+                    status.Text = "Loading body details " + completed + "/" + preliminary.Count + " from " + bodyDataSource + "…";
+                });
+                await edsm.EnrichBodiesAsync(preliminary, settings.ExplorationSource, progress, cancellation.Token);
                 var ranked = scorer.Rank(preliminary, settings);
                 if (settings.OnlySystemsWithoutBodyData && settings.MaximumBridgeSystems > 0)
                 {
@@ -350,7 +361,10 @@ namespace EliteColonisationSurveyor.Plugin
                 status.Text = "Search failed: " + ex.Message;
                 SurveyorEDDClass.Callbacks.WriteToLogHighlight?.Invoke("Colonisation Surveyor: " + ex);
             }
-            finally { generate.Enabled = true; }
+            finally {
+                bodyDataProgress.Visible = false;
+                generate.Enabled = true;
+            }
         }
 
         private void RenderRoute()
