@@ -21,7 +21,8 @@ commander's current star system. The first MVP:
   and jump-safe search patterns;
 - includes a Scoring tab that explains the ranking formula and lets each profile
   customise the habitation, permit, scoopability and distance coefficients;
-- can enrich shortlisted systems with EDSM body data and score habitable,
+- can enrich shortlisted systems with EDSM body data, or Spansh data
+  cross-checked against EDSM, and score habitable,
   terraformable and landable bodies, resource potential, arrival convenience,
   stellar hazards and data confidence;
 - provides scoring presets, per-system score breakdowns and an optional minimum
@@ -33,8 +34,12 @@ commander's current star system. The first MVP:
 - tracks progress through the generated route, identifies and copies the next
   waypoint for Galaxy Map search, and can auto-copy it after each successful
   hyperspace jump;
-- offers an Exploration mode that routes only through systems EDSM confirms
-  have no submitted body data, without treating lookup failures as unexplored;
+- offers an Exploration mode with selectable EDSM or Spansh data sources;
+- when Spansh is selected, cross-checks EDSM and combines the catalogues so a
+  system is not considered unexplored merely because one service lacks data;
+- can target systems with no body data, incomplete catalogues, body-data
+  completeness below a chosen percentage, or no more than a chosen number of
+  known bodies, without treating lookup failures as unexplored;
 - can insert a configurable number of known-data bridge systems between
   Exploration-mode targets when the ship cannot reach them directly;
 - pushes the resulting star list into EDDiscovery's Expedition panel;
@@ -128,12 +133,15 @@ The EDDiscovery interface source is vendored from
 
 ## Current assumptions
 
-EDSM only returns systems already submitted by commanders, so this route is a
-survey pattern over *known* stars rather than a complete catalogue of every
+EDSM only returns systems already submitted by commanders, so the search field
+is a survey pattern over *known* stars rather than a complete catalogue of every
 procedurally generated star. The public sphere API has a maximum radius of 100
-ly, which the panel enforces. A candidate score is guidance, not a guarantee of
-in-game colonisation eligibility; eligibility and body details must be checked
-in game as systems are visited.
+ly, which the panel enforces. Spansh is available as an Exploration-mode body
+data source; its results are automatically cross-checked with EDSM. Missing
+catalogue data is evidence of an exploration opportunity, not proof that a
+system has never been visited. A candidate score is guidance, not a guarantee
+of in-game colonisation eligibility; eligibility and body details must be
+checked in game as systems are visited.
 
 The default score favours unpopulated, non-permit systems and scoopable primary
 stars. Distance from the centre is a small tie-breaker. The generated route

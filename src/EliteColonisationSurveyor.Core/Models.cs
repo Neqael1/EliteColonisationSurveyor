@@ -20,6 +20,20 @@ namespace EliteColonisationSurveyor.Core
         Cone
     }
 
+    public enum ExplorationDataSource
+    {
+        Edsm,
+        Spansh
+    }
+
+    public enum ExplorationFilterMode
+    {
+        NoBodyData,
+        IncompleteCatalogue,
+        BelowCompleteness,
+        AtMostKnownBodies
+    }
+
     public sealed class Coordinates
     {
         public double X { get; set; }
@@ -39,6 +53,7 @@ namespace EliteColonisationSurveyor.Core
     {
         public string Name { get; set; }
         public long Id { get; set; }
+        public long SystemAddress { get; set; }
         public double DistanceFromCentre { get; set; }
         public Coordinates Coordinates { get; set; }
         public bool RequiresPermit { get; set; }
@@ -54,6 +69,7 @@ namespace EliteColonisationSurveyor.Core
         public bool BodyDataAvailable { get; set; }
         public double BodyDataCompleteness { get; set; }
         public int KnownBodyCount { get; set; }
+        public int ExpectedBodyCount { get; set; }
         public int HabitableBodyCount { get; set; }
         public int TerraformableBodyCount { get; set; }
         public int LandableBodyCount { get; set; }
@@ -85,6 +101,10 @@ namespace EliteColonisationSurveyor.Core
         public bool PreferScoopableStars { get; set; } = true;
         public bool OnlySystemsWithoutBodyData { get; set; }
         public int MaximumBridgeSystems { get; set; } = 2;
+        public ExplorationDataSource ExplorationSource { get; set; } = ExplorationDataSource.Edsm;
+        public ExplorationFilterMode ExplorationFilter { get; set; } = ExplorationFilterMode.NoBodyData;
+        public double MaximumBodyDataCompleteness { get; set; } = 25;
+        public int MaximumKnownBodies { get; set; }
         public SearchFieldShape FieldShape { get; set; } = SearchFieldShape.Sphere;
         public Coordinates FieldOrigin { get; set; }
         public Coordinates ConeDirection { get; set; }

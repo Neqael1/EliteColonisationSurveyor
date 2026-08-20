@@ -20,13 +20,28 @@ namespace EliteColonisationSurveyor.Core
                 .Where(s => IsInsideSearchField(s, settings))
                 .Where(s => !settings.ExcludeColonised || !s.IsColonised)
                 .Where(s => !settings.ExcludePermitLocked || !s.RequiresPermit)
-                .Where(s => !settings.OnlySystemsWithoutBodyData || (s.BodyDataLookupSucceeded && !s.BodyDataAvailable))
+                .Where(s => !settings.OnlySystemsWithoutBodyData || MatchesExplorationFilter(s, settings))
                 .Select(s => { s.CandidateScore = Score(s, settings); return s; })
                 .Where(s => !settings.MinimumScore.HasValue || s.CandidateScore >= settings.MinimumScore.Value)
                 .OrderByDescending(s => s.CandidateScore)
                 .ThenBy(s => s.DistanceFromCentre)
                 .Take(Math.Max(1, settings.MaximumSystems))
                 .ToList();
+        }
+
+        private static bool MatchesExplorationFilter(StarSystem system, SearchSettings settings)
+        {
+            if (!system.BodyDataLookupSucceeded) return false;
+            if (settings.ExplorationFilter == ExplorationFilterMode.NoBodyData)
+                return system.KnownBodyCount == 0;
+            if (settings.ExplorationFilter == ExplorationFilterMode.IncompleteCatalogue)
+                return system.ExpectedBodyCount > 0 && system.KnownBodyCount < system.ExpectedBodyCount;
+            if (settings.ExplorationFilter == ExplorationFilterMode.AtMostKnownBodies)
+                return system.KnownBodyCount <= Math.Max(0, settings.MaximumKnownBodies);
+            var completeness = system.ExpectedBodyCount > 0
+                ? system.KnownBodyCount * 100.0 / system.ExpectedBodyCount
+                : system.KnownBodyCount == 0 ? 0 : 100;
+            return completeness <= Math.Max(0, Math.Min(100, settings.MaximumBodyDataCompleteness));
         }
 
         private static bool IsInsideSearchField(StarSystem system, SearchSettings settings)

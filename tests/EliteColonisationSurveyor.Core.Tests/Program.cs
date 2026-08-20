@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using EliteColonisationSurveyor.Core;
 
 static StarSystem Star(string name, double x, double y = 0, long population = 0, bool permit = false) =>
@@ -55,11 +56,28 @@ Assert(ranked[0].ScoreBreakdown.Contains("unknown default"), "Unknown-data fallb
 
 var confirmedNoBodies = Star("confirmed-no-bodies", 10); confirmedNoBodies.BodyDataLookupSucceeded = true;
 var lookupFailed = Star("lookup-failed", 11);
-var knownBodies = Star("known-bodies", 12); knownBodies.BodyDataLookupSucceeded = true; knownBodies.BodyDataAvailable = true;
+var knownBodies = Star("known-bodies", 12); knownBodies.BodyDataLookupSucceeded = true; knownBodies.BodyDataAvailable = true; knownBodies.KnownBodyCount = 1;
 ranked = scorer.Rank(new[] { confirmedNoBodies, lookupFailed, knownBodies }, new SearchSettings {
     RadiusLy = 50, OnlySystemsWithoutBodyData = true
 });
 Assert(ranked.Count == 1 && ranked[0].Name == "confirmed-no-bodies", "Exploration mode did not require confirmed missing body data");
+
+var partial = Star("partial", 13); partial.BodyDataLookupSucceeded = true; partial.KnownBodyCount = 2; partial.ExpectedBodyCount = 10;
+var complete = Star("complete", 14); complete.BodyDataLookupSucceeded = true; complete.KnownBodyCount = 10; complete.ExpectedBodyCount = 10;
+ranked = scorer.Rank(new[] { partial, complete }, new SearchSettings {
+    RadiusLy = 50, OnlySystemsWithoutBodyData = true, ExplorationFilter = ExplorationFilterMode.IncompleteCatalogue
+});
+Assert(ranked.Count == 1 && ranked[0].Name == "partial", "Incomplete-catalogue exploration filter failed");
+ranked = scorer.Rank(new[] { partial, complete }, new SearchSettings {
+    RadiusLy = 50, OnlySystemsWithoutBodyData = true, ExplorationFilter = ExplorationFilterMode.BelowCompleteness,
+    MaximumBodyDataCompleteness = 25
+});
+Assert(ranked.Count == 1 && ranked[0].Name == "partial", "Completeness-percentage exploration filter failed");
+ranked = scorer.Rank(new[] { confirmedNoBodies, partial, complete }, new SearchSettings {
+    RadiusLy = 50, OnlySystemsWithoutBodyData = true, ExplorationFilter = ExplorationFilterMode.AtMostKnownBodies,
+    MaximumKnownBodies = 2
+});
+Assert(ranked.Count == 2 && ranked.Any(x => x.Name == "confirmed-no-bodies") && ranked.Any(x => x.Name == "partial"), "Known-body-count exploration filter failed");
 
 var coneInside = new StarSystem { Name = "cone-inside", Coordinates = new Coordinates { X = 110, Z = 100 }, DistanceFromCentre = 10 };
 var coneOutside = new StarSystem { Name = "cone-outside", Coordinates = new Coordinates { X = 100, Z = 110 }, DistanceFromCentre = 10 };
