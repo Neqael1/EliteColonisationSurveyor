@@ -65,10 +65,15 @@ namespace EliteColonisationSurveyor.Plugin
         }
 
         public Task EnrichBodiesAsync(IEnumerable<StarSystem> systems, CancellationToken token)
-            => EnrichBodiesAsync(systems, ExplorationDataSource.Edsm, token);
+            => EnrichBodiesAsync(systems, ExplorationDataSource.Edsm, null, token);
 
         public async Task EnrichBodiesAsync(IEnumerable<StarSystem> systems, ExplorationDataSource source, CancellationToken token)
+            => await EnrichBodiesAsync(systems, source, null, token).ConfigureAwait(false);
+
+        public async Task EnrichBodiesAsync(IEnumerable<StarSystem> systems, ExplorationDataSource source,
+            IProgress<int> progress, CancellationToken token)
         {
+            var completed = 0;
             using (var gate = new SemaphoreSlim(6))
             {
                 var tasks = systems.Select(async system => {
@@ -76,7 +81,10 @@ namespace EliteColonisationSurveyor.Plugin
                     try { await EnrichBodyDataAsync(system, source, token).ConfigureAwait(false); }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception) { /* Missing or malformed EDSM body data remains explicitly unknown. */ }
-                    finally { gate.Release(); }
+                    finally {
+                        gate.Release();
+                        progress?.Report(Interlocked.Increment(ref completed));
+                    }
                 });
                 await Task.WhenAll(tasks).ConfigureAwait(false);
             }
