@@ -14,6 +14,19 @@ namespace EliteColonisationSurveyor.Plugin
         private static readonly HttpClient Http = CreateClient();
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
 
+        public async Task<StarSystem> GetSystemAsync(string name, CancellationToken token)
+        {
+            var url = "https://www.edsm.net/api-v1/system?systemName=" + Uri.EscapeDataString(name)
+                    + "&showId=1&showCoordinates=1&showPermit=1&showInformation=1&showPrimaryStar=1";
+            using (var response = await Http.GetAsync(url, token).ConfigureAwait(false))
+            {
+                response.EnsureSuccessStatusCode();
+                var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var row = json.Deserialize<EdsmSystem>(text);
+                return ToStarSystem(row);
+            }
+        }
+
         public async Task<List<StarSystem>> GetSphereAsync(string centre, double radius, CancellationToken token)
         {
             var url = "https://www.edsm.net/api-v1/sphere-systems?systemName=" + Uri.EscapeDataString(centre)
@@ -27,21 +40,27 @@ namespace EliteColonisationSurveyor.Plugin
                 var result = new List<StarSystem>();
                 foreach (var row in rows)
                 {
-                    if (row.coords == null || string.IsNullOrWhiteSpace(row.name)) continue;
-                    result.Add(new StarSystem {
-                        Name = row.name, Id = row.id, DistanceFromCentre = row.distance,
-                        Coordinates = new Coordinates { X = row.coords.x, Y = row.coords.y, Z = row.coords.z },
-                        RequiresPermit = row.requirePermit,
-                        Population = row.information?.population ?? 0,
-                        Allegiance = row.information?.allegiance,
-                        Government = row.information?.government,
-                        Economy = row.information?.economy,
-                        Security = row.information?.security,
-                        PrimaryStarType = row.primaryStar?.type
-                    });
+                    var system = ToStarSystem(row);
+                    if (system != null) result.Add(system);
                 }
                 return result;
             }
+        }
+
+        private static StarSystem ToStarSystem(EdsmSystem row)
+        {
+            if (row == null || row.coords == null || string.IsNullOrWhiteSpace(row.name)) return null;
+            return new StarSystem {
+                Name = row.name, Id = row.id, DistanceFromCentre = row.distance,
+                Coordinates = new Coordinates { X = row.coords.x, Y = row.coords.y, Z = row.coords.z },
+                RequiresPermit = row.requirePermit,
+                Population = row.information?.population ?? 0,
+                Allegiance = row.information?.allegiance,
+                Government = row.information?.government,
+                Economy = row.information?.economy,
+                Security = row.information?.security,
+                PrimaryStarType = row.primaryStar?.type
+            };
         }
 
         public async Task EnrichBodiesAsync(IEnumerable<StarSystem> systems, CancellationToken token)

@@ -17,6 +17,7 @@ namespace EliteColonisationSurveyor.Core
             return systems
                 .Where(s => s != null && s.Coordinates != null)
                 .Where(s => s.DistanceFromCentre > 0 && s.DistanceFromCentre <= settings.RadiusLy)
+                .Where(s => IsInsideSearchField(s, settings))
                 .Where(s => !settings.ExcludeColonised || !s.IsColonised)
                 .Where(s => !settings.ExcludePermitLocked || !s.RequiresPermit)
                 .Where(s => !settings.OnlySystemsWithoutBodyData || (s.BodyDataLookupSucceeded && !s.BodyDataAvailable))
@@ -26,6 +27,24 @@ namespace EliteColonisationSurveyor.Core
                 .ThenBy(s => s.DistanceFromCentre)
                 .Take(Math.Max(1, settings.MaximumSystems))
                 .ToList();
+        }
+
+        private static bool IsInsideSearchField(StarSystem system, SearchSettings settings)
+        {
+            if (settings.FieldShape != SearchFieldShape.Cone || settings.ConeDirection == null) return true;
+            var axisX = settings.ConeDirection.X;
+            var axisY = settings.ConeDirection.Y;
+            var axisZ = settings.ConeDirection.Z;
+            var axisLength = Math.Sqrt(axisX * axisX + axisY * axisY + axisZ * axisZ);
+            var pointX = system.Coordinates.X - (settings.FieldOrigin?.X ?? 0);
+            var pointY = system.Coordinates.Y - (settings.FieldOrigin?.Y ?? 0);
+            var pointZ = system.Coordinates.Z - (settings.FieldOrigin?.Z ?? 0);
+            var pointLength = Math.Sqrt(pointX * pointX + pointY * pointY + pointZ * pointZ);
+            if (axisLength < 0.000001 || pointLength < 0.000001) return false;
+            var cosine = (pointX * axisX + pointY * axisY + pointZ * axisZ)
+                       / (pointLength * axisLength);
+            var halfAngle = Math.Max(0.1, Math.Min(180, settings.ConeAngleDegrees)) * Math.PI / 360.0;
+            return cosine >= Math.Cos(halfAngle) - 0.0000001;
         }
 
         private static double Score(StarSystem system, SearchSettings settings)

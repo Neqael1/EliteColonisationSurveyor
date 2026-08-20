@@ -8,6 +8,9 @@ An EDDiscovery extension panel that builds an efficient survey route around the
 commander's current star system. The first MVP:
 
 - receives the current system, coordinates and ship through EDDiscovery;
+- can override the route source with any EDSM system that has known coordinates;
+- supports spherical search fields and directed cones with a configurable full
+  opening angle and distance;
 - reads the current ship loadout and detects its jump range where available;
 - fetches known systems inside a user-selected radius from EDSM;
 - removes systems with population or habitation metadata before ranking candidates;
@@ -34,7 +37,9 @@ commander's current star system. The first MVP:
   have no submitted body data, without treating lookup failures as unexplored;
 - can insert a configurable number of known-data bridge systems between
   Exploration-mode targets when the ship cannot reach them directly;
-- pushes the resulting star list into EDDiscovery's Expedition panel.
+- pushes the resulting star list into EDDiscovery's Expedition panel;
+- keeps the main toolbar compact with icon actions while detailed search and
+  waypoint controls live on a dedicated Options tab.
 
 This is an independent, unofficial project and is not endorsed by Frontier
 Developments or the EDDiscovery team.

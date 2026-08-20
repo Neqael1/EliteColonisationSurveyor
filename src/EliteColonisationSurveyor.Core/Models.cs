@@ -14,6 +14,12 @@ namespace EliteColonisationSurveyor.Core
         JumpSafe
     }
 
+    public enum SearchFieldShape
+    {
+        Sphere,
+        Cone
+    }
+
     public sealed class Coordinates
     {
         public double X { get; set; }
@@ -79,6 +85,10 @@ namespace EliteColonisationSurveyor.Core
         public bool PreferScoopableStars { get; set; } = true;
         public bool OnlySystemsWithoutBodyData { get; set; }
         public int MaximumBridgeSystems { get; set; } = 2;
+        public SearchFieldShape FieldShape { get; set; } = SearchFieldShape.Sphere;
+        public Coordinates FieldOrigin { get; set; }
+        public Coordinates ConeDirection { get; set; }
+        public double ConeAngleDegrees { get; set; } = 45;
         public SearchPattern Pattern { get; set; } = SearchPattern.Balanced;
         public ScoreWeights Weights { get; set; } = new ScoreWeights();
         public double? MinimumScore { get; set; }
