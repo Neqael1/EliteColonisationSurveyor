@@ -594,7 +594,8 @@ namespace EliteColonisationSurveyor.Plugin
         private TabPage BuildOptionsPage()
         {
             var page = new TabPage("Options") { AutoScroll = true };
-            var sections = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8) };
+            var sections = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(8) };
+            sections.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
             var mode = CreateOptionGroup("Survey mode", 850);
             AddOptionRow(mode, 0, "Mode", surveyMode, "Choose colony candidates, catalogue completion, or an expedition aimed at first discoveries.");
@@ -628,22 +629,22 @@ namespace EliteColonisationSurveyor.Plugin
             var scoringPage = BuildScoringPage();
             var scoring = scoringPage.Controls[0];
             scoringPage.Controls.Remove(scoring);
-            var scoringGroup = new GroupBox { Text = "Scoring coefficients", AutoSize = true, Width = 850, Padding = new Padding(8) };
+            var scoringGroup = new GroupBox { Text = "Scoring coefficients", AutoSize = true, Dock = DockStyle.Top, Padding = new Padding(8) };
             scoring.Dock = DockStyle.Top;
             scoringGroup.Controls.Add(scoring);
 
-            sections.Controls.Add((Control)mode.Tag);
-            sections.Controls.Add((Control)area.Tag);
-            sections.Controls.Add((Control)eligibility.Tag);
-            sections.Controls.Add((Control)assistance.Tag);
-            sections.Controls.Add(scoringGroup);
+            sections.Controls.Add((Control)mode.Tag, 0, 0);
+            sections.Controls.Add((Control)area.Tag, 0, 1);
+            sections.Controls.Add((Control)eligibility.Tag, 0, 2);
+            sections.Controls.Add((Control)assistance.Tag, 0, 3);
+            sections.Controls.Add(scoringGroup, 0, 4);
             page.Controls.Add(sections);
             return page;
         }
 
         private static TableLayoutPanel CreateOptionGroup(string title, int width)
         {
-            var group = new GroupBox { Text = title, AutoSize = true, Width = width, Padding = new Padding(8), Margin = new Padding(4, 4, 4, 10) };
+            var group = new GroupBox { Text = title, AutoSize = true, Dock = DockStyle.Top, MinimumSize = new Size(Math.Min(width, 400), 0), Padding = new Padding(8), Margin = new Padding(4, 4, 4, 10) };
             var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
