@@ -473,6 +473,7 @@ namespace EliteColonisationSurveyor.Plugin
                 var sampleCount = (int)corridorSamples.Value;
                 var targets = anchorRecommender.GenerateTargets(origin.Coordinates, (double)expeditionDistance.Value, directionCount);
                 var broad = new List<AnchorSample>();
+                var endpointFailures = 0;
                 var completed = 0;
                 var total = directionCount + Math.Min(3, directionCount) * sampleCount;
                 bodyDataProgress.Minimum = 0;
@@ -486,18 +487,28 @@ namespace EliteColonisationSurveyor.Plugin
                     status.Text = "Sampling destination regions " + completed + "/" + directionCount + "…";
                     try
                     {
-                        var systems = await edsm.GetSphereAtCoordinatesAsync(target, 20, cancellation.Token);
+                        var systems = await edsm.GetSphereAtCoordinatesAsync(target, 50, cancellation.Token);
                         var anchor = SelectAnchor(systems);
+                        if (anchor == null)
+                        {
+                            var expanded = await edsm.GetSphereAtCoordinatesAsync(target, 100, cancellation.Token);
+                            anchor = SelectAnchor(expanded);
+                        }
                         if (anchor != null) broad.Add(new AnchorSample { Anchor = anchor, Target = target, EndpointKnownSystems = systems.Count });
                     }
                     catch (OperationCanceledException) { throw; }
-                    catch (Exception ex) { SurveyorEDDClass.Callbacks.WriteToLog?.Invoke("Anchor endpoint sample failed: " + ex.Message); }
+                    catch (Exception ex) {
+                        endpointFailures++;
+                        SurveyorEDDClass.Callbacks.WriteToLog?.Invoke("Anchor endpoint sample failed: " + ex.Message);
+                    }
                     completed++;
                     bodyDataProgress.Value = Math.Min(completed, total);
                 }
 
                 var finalists = broad.OrderBy(x => x.EndpointKnownSystems < 2).ThenBy(x => x.EndpointKnownSystems).Take(3).ToList();
-                if (finalists.Count == 0) throw new InvalidOperationException("No usable known anchors were found near the sampled destination regions.");
+                if (finalists.Count == 0) throw new InvalidOperationException(endpointFailures == directionCount
+                    ? "Every EDSM coordinate lookup failed; check the EDDiscovery log for the service response."
+                    : "No usable known anchors were found within 100 ly of the sampled destination regions.");
                 foreach (var candidate in finalists)
                 {
                     var counts = new List<int>();
@@ -506,7 +517,7 @@ namespace EliteColonisationSurveyor.Plugin
                     {
                         cancellation.Token.ThrowIfCancellationRequested();
                         status.Text = "Sampling corridor to " + candidate.Anchor.Name + "…";
-                        try { counts.Add((await edsm.GetSphereAtCoordinatesAsync(point, 20, cancellation.Token)).Count); }
+                        try { counts.Add((await edsm.GetSphereAtCoordinatesAsync(point, 30, cancellation.Token)).Count); }
                         catch (OperationCanceledException) { throw; }
                         catch (Exception ex) {
                             failures++;
