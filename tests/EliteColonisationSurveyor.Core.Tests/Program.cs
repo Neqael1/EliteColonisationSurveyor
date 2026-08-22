@@ -148,6 +148,7 @@ Assert(route.Count == 1, "Exploration route exceeded the configured bridge-syste
 var recommender = new AnchorRecommender();
 var targets = recommender.GenerateTargets(origin.Coordinates, 3000, 12);
 Assert(targets.Count == 12 && targets.All(x => Math.Abs(origin.Coordinates.DistanceTo(x) - 3000) < 0.001), "Anchor targets were not distributed at the requested distance");
+Assert(targets.All(x => Math.Abs(x.Y - origin.Coordinates.Y) <= 600.001), "Anchor targets strayed outside the practical galactic vertical band");
 var corridorPoints = recommender.GenerateCorridorSamples(origin.Coordinates, new Coordinates { X = 1000 }, 4);
 Assert(corridorPoints.Count == 4 && Math.Abs(corridorPoints[0].X - 200) < 0.001 && Math.Abs(corridorPoints[3].X - 800) < 0.001, "Corridor samples were not evenly spaced");
 var sparseAnchor = Star("sparse-anchor", 3000); sparseAnchor.PrimaryStarType = "K (Yellow-Orange) Star";

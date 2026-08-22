@@ -34,15 +34,17 @@ namespace EliteColonisationSurveyor.Core
             distanceLy = Math.Max(1, distanceLy);
             var result = new List<Coordinates>();
             var goldenAngle = Math.PI * (3 - Math.Sqrt(5));
+            var verticalExtent = Math.Min(1000, distanceLy * 0.20);
+            var verticalBands = new[] { -1.0, -0.5, 0.0, 0.5, 1.0 };
             for (var i = 0; i < count; i++)
             {
-                var y = 1 - 2 * (i + 0.5) / count;
-                var horizontal = Math.Sqrt(Math.Max(0, 1 - y * y));
+                var y = verticalExtent * verticalBands[i % verticalBands.Length];
+                var horizontal = Math.Sqrt(Math.Max(0, distanceLy * distanceLy - y * y));
                 var angle = i * goldenAngle;
                 result.Add(new Coordinates {
-                    X = origin.X + distanceLy * horizontal * Math.Cos(angle),
-                    Y = origin.Y + distanceLy * y,
-                    Z = origin.Z + distanceLy * horizontal * Math.Sin(angle)
+                    X = origin.X + horizontal * Math.Cos(angle),
+                    Y = origin.Y + y,
+                    Z = origin.Z + horizontal * Math.Sin(angle)
                 });
             }
             return result;
