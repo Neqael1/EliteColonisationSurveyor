@@ -13,7 +13,9 @@ namespace EliteColonisationSurveyor.Plugin
     internal sealed class EdsmClient
     {
         private static readonly HttpClient Http = CreateClient();
-        private readonly JavaScriptSerializer json = new JavaScriptSerializer();
+        private readonly JavaScriptSerializer json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+        private readonly Dictionary<string, List<StarSystem>> sphereCache = new Dictionary<string, List<StarSystem>>();
+        private readonly object cacheSync = new object();
 
         public async Task<StarSystem> GetSystemAsync(string name, CancellationToken token)
         {
@@ -97,6 +99,32 @@ namespace EliteColonisationSurveyor.Plugin
                     if (system != null) result.Add(system);
                 }
                 return result;
+            }
+        }
+
+        public async Task<List<StarSystem>> GetSphereAtCoordinatesAsync(Coordinates centre, double radius, CancellationToken token)
+        {
+            if (centre == null) throw new ArgumentNullException(nameof(centre));
+            var culture = System.Globalization.CultureInfo.InvariantCulture;
+            var key = Math.Round(centre.X, 1).ToString(culture) + ":" + Math.Round(centre.Y, 1).ToString(culture)
+                    + ":" + Math.Round(centre.Z, 1).ToString(culture) + ":" + radius.ToString(culture);
+            lock (cacheSync)
+            {
+                List<StarSystem> cached;
+                if (sphereCache.TryGetValue(key, out cached)) return cached.ToList();
+            }
+            var url = "https://www.edsm.net/api-v1/sphere-systems?x=" + centre.X.ToString(culture)
+                    + "&y=" + centre.Y.ToString(culture) + "&z=" + centre.Z.ToString(culture)
+                    + "&radius=" + radius.ToString(culture)
+                    + "&showId=1&showCoordinates=1&showPermit=1&showPrimaryStar=1";
+            using (var response = await Http.GetAsync(url, token).ConfigureAwait(false))
+            {
+                response.EnsureSuccessStatusCode();
+                var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var rows = json.Deserialize<List<EdsmSystem>>(text) ?? new List<EdsmSystem>();
+                var result = rows.Select(ToStarSystem).Where(x => x != null).ToList();
+                lock (cacheSync) sphereCache[key] = result;
+                return result.ToList();
             }
         }
 

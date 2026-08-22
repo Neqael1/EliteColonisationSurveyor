@@ -38,6 +38,8 @@ commander's current star system. The first MVP:
 - creates first-discovery expeditions around a distant known anchor, imports the
   route plotted by Elite from `NavRoute.json`, and highlights stops absent from
   both EDSM and Spansh;
+- can recommend distant anchors by broadly sampling candidate endpoint regions,
+  then measuring catalogue density along the most promising travel corridors;
 - uses primary-star journal scans to distinguish likely opportunities from
   systems confirmed as new or previously discovered in game;
 - offers catalogue completion with selectable EDSM or Spansh data sources;

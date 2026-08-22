@@ -36,6 +36,15 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly NumericUpDown explorationKnownBodies = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 0, Width = 65, Enabled = false };
         private readonly NumericUpDown explorationBridges = new NumericUpDown { Minimum = 0, Maximum = 10, Value = 2, Width = 48, Enabled = false };
         private readonly TextBox expeditionAnchor = new TextBox { Width = 220, Enabled = false };
+        private readonly NumericUpDown expeditionDistance = new NumericUpDown { Minimum = 500, Maximum = 20000, Value = 3000, Increment = 500, Width = 75, Enabled = false };
+        private readonly NumericUpDown expeditionDirections = new NumericUpDown { Minimum = 4, Maximum = 24, Value = 12, Width = 60, Enabled = false };
+        private readonly NumericUpDown corridorSamples = new NumericUpDown { Minimum = 3, Maximum = 12, Value = 6, Width = 60, Enabled = false };
+        private readonly Button recommendAnchor = new Button { Text = "Recommend anchors", AutoSize = true, Enabled = false };
+        private readonly Button useRecommendedAnchor = new Button { Text = "Use selected anchor", AutoSize = true, Enabled = false };
+        private readonly DataGridView anchorRecommendations = new DataGridView {
+            Width = 790, Height = 130, ReadOnly = true, AutoGenerateColumns = false, AllowUserToAddRows = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = false, Enabled = false
+        };
         private readonly Button importNavRoute = new Button { Text = "Import plotted route", AutoSize = true, Enabled = false };
         private readonly CheckBox useMinimumScore = new CheckBox { Text = "Minimum score", AutoSize = true };
         private readonly NumericUpDown minimumScore = new NumericUpDown { Minimum = -1000, Maximum = 1000, Value = 75, DecimalPlaces = 1, Width = 70, Enabled = false };
@@ -75,6 +84,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly EdsmClient edsm = new EdsmClient();
         private readonly CandidateScorer scorer = new CandidateScorer();
         private readonly RoutePlanner planner = new RoutePlanner();
+        private readonly AnchorRecommender anchorRecommender = new AnchorRecommender();
         private EDDDLLIF.EDDPanelCallbacks panelCallbacks;
         private StarSystem currentSystem;
         private ShipProfile currentShip = new ShipProfile();
@@ -87,6 +97,7 @@ namespace EliteColonisationSurveyor.Plugin
         private decimal configuredUncolonisedWeight = 60;
         private decimal configuredColonisedWeight = 5;
         private bool updatingColonisationWeights;
+        private IReadOnlyList<AnchorRecommendation> recommendedAnchors = new List<AnchorRecommendation>();
 
         public SurveyorPanel()
         {
@@ -133,6 +144,13 @@ namespace EliteColonisationSurveyor.Plugin
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Score", Width = 65 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Primary", Width = 90 });
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Score breakdown", Width = 420 });
+            anchorRecommendations.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Anchor", Width = 210 });
+            anchorRecommendations.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Distance", Width = 70 });
+            anchorRecommendations.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Endpoint", Width = 65 });
+            anchorRecommendations.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Median", Width = 60 });
+            anchorRecommendations.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Busiest", Width = 60 });
+            anchorRecommendations.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Confidence", Width = 75 });
+            anchorRecommendations.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Analysis", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
             var tabs = new TabControl { Dock = DockStyle.Fill };
             var routePage = new TabPage("Route list");
             routePage.Controls.Add(grid);
@@ -166,6 +184,9 @@ namespace EliteColonisationSurveyor.Plugin
             autoCopyNext.CheckedChanged += (_, __) => panelCallbacks?.SaveInt?.Invoke("auto_copy_next", autoCopyNext.Checked ? 1 : 0);
             shortlistCurrent.Click += (_, __) => ToggleCurrentShortlist();
             importNavRoute.Click += async (_, __) => await ImportNavRouteAsync();
+            recommendAnchor.Click += async (_, __) => await RecommendAnchorsAsync();
+            useRecommendedAnchor.Click += (_, __) => UseSelectedRecommendation();
+            anchorRecommendations.SelectionChanged += (_, __) => useRecommendedAnchor.Enabled = anchorRecommendations.SelectedRows.Count > 0;
         }
 
         internal static void PublishLocation(EDDDLLIF.JournalEntry entry)
@@ -198,6 +219,9 @@ namespace EliteColonisationSurveyor.Plugin
             explorationKnownBodies.Value = Clamp(callbacks.GetInt?.Invoke("exploration_known_bodies", 0) ?? 0, 0, 100);
             explorationBridges.Value = Clamp(callbacks.GetInt?.Invoke("exploration_bridges", 2) ?? 2, explorationBridges.Minimum, explorationBridges.Maximum);
             expeditionAnchor.Text = callbacks.GetString?.Invoke("expedition_anchor", "") ?? "";
+            expeditionDistance.Value = Clamp(callbacks.GetDouble?.Invoke("expedition_distance", 3000) ?? 3000, expeditionDistance.Minimum, expeditionDistance.Maximum);
+            expeditionDirections.Value = Clamp(callbacks.GetInt?.Invoke("expedition_directions", 12) ?? 12, expeditionDirections.Minimum, expeditionDirections.Maximum);
+            corridorSamples.Value = Clamp(callbacks.GetInt?.Invoke("corridor_samples", 6) ?? 6, corridorSamples.Minimum, corridorSamples.Maximum);
             autoCopyNext.Checked = (callbacks.GetInt?.Invoke("auto_copy_next", 0) ?? 0) != 0;
             LoadScoreWeights(callbacks);
             LoadShortlist(callbacks);
@@ -424,6 +448,130 @@ namespace EliteColonisationSurveyor.Plugin
             cancellation.Cancel();
         }
 
+        private async Task RecommendAnchorsAsync()
+        {
+            if (currentSystem == null && !overrideSource.Checked) { status.Text = "No current system received from EDDiscovery yet."; return; }
+            cancellation?.Cancel();
+            cancellation = new CancellationTokenSource();
+            recommendAnchor.Enabled = false;
+            generate.Enabled = false;
+            stopSearch.Enabled = true;
+            anchorRecommendations.Rows.Clear();
+            recommendedAnchors = new List<AnchorRecommendation>();
+            try
+            {
+                var origin = currentSystem;
+                if (overrideSource.Checked)
+                {
+                    if (string.IsNullOrWhiteSpace(sourceSystem.Text)) throw new InvalidOperationException("Enter an override source system.");
+                    status.Text = "Resolving recommendation source…";
+                    origin = await edsm.GetSystemAsync(sourceSystem.Text.Trim(), cancellation.Token);
+                    if (origin == null) throw new InvalidOperationException("EDSM could not find the source system.");
+                }
+
+                var directionCount = (int)expeditionDirections.Value;
+                var sampleCount = (int)corridorSamples.Value;
+                var targets = anchorRecommender.GenerateTargets(origin.Coordinates, (double)expeditionDistance.Value, directionCount);
+                var broad = new List<AnchorSample>();
+                var completed = 0;
+                var total = directionCount + Math.Min(3, directionCount) * sampleCount;
+                bodyDataProgress.Minimum = 0;
+                bodyDataProgress.Maximum = total;
+                bodyDataProgress.Value = 0;
+                bodyDataProgress.Visible = true;
+
+                foreach (var target in targets)
+                {
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    status.Text = "Sampling destination regions " + completed + "/" + directionCount + "…";
+                    try
+                    {
+                        var systems = await edsm.GetSphereAtCoordinatesAsync(target, 20, cancellation.Token);
+                        var anchor = SelectAnchor(systems);
+                        if (anchor != null) broad.Add(new AnchorSample { Anchor = anchor, Target = target, EndpointKnownSystems = systems.Count });
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex) { SurveyorEDDClass.Callbacks.WriteToLog?.Invoke("Anchor endpoint sample failed: " + ex.Message); }
+                    completed++;
+                    bodyDataProgress.Value = Math.Min(completed, total);
+                }
+
+                var finalists = broad.OrderBy(x => x.EndpointKnownSystems < 2).ThenBy(x => x.EndpointKnownSystems).Take(3).ToList();
+                if (finalists.Count == 0) throw new InvalidOperationException("No usable known anchors were found near the sampled destination regions.");
+                foreach (var candidate in finalists)
+                {
+                    var counts = new List<int>();
+                    var failures = 0;
+                    foreach (var point in anchorRecommender.GenerateCorridorSamples(origin.Coordinates, candidate.Anchor.Coordinates, sampleCount))
+                    {
+                        cancellation.Token.ThrowIfCancellationRequested();
+                        status.Text = "Sampling corridor to " + candidate.Anchor.Name + "…";
+                        try { counts.Add((await edsm.GetSphereAtCoordinatesAsync(point, 20, cancellation.Token)).Count); }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex) {
+                            failures++;
+                            SurveyorEDDClass.Callbacks.WriteToLog?.Invoke("Anchor corridor sample failed: " + ex.Message);
+                        }
+                        completed++;
+                        bodyDataProgress.Value = Math.Min(completed, total);
+                    }
+                    candidate.CorridorKnownSystems = counts;
+                    candidate.FailedSamples = failures;
+                }
+
+                recommendedAnchors = anchorRecommender.Rank(origin.Coordinates, finalists, 3);
+                foreach (var recommendation in recommendedAnchors)
+                {
+                    var index = anchorRecommendations.Rows.Add(recommendation.Anchor.Name,
+                        recommendation.DistanceLy.ToString("0"), recommendation.EndpointKnownSystems,
+                        recommendation.MedianCorridorSystems.ToString("0.#"), recommendation.BusiestCorridorSystems,
+                        recommendation.Confidence, recommendation.Explanation);
+                    anchorRecommendations.Rows[index].Tag = recommendation;
+                }
+                if (anchorRecommendations.Rows.Count > 0) anchorRecommendations.Rows[0].Selected = true;
+                panelCallbacks.SaveDouble?.Invoke("expedition_distance", (double)expeditionDistance.Value);
+                panelCallbacks.SaveInt?.Invoke("expedition_directions", directionCount);
+                panelCallbacks.SaveInt?.Invoke("corridor_samples", sampleCount);
+                status.Text = recommendedAnchors.Count + " anchor recommendation(s) ranked. Lower catalogue counts indicate quieter corridors.";
+            }
+            catch (OperationCanceledException) { status.Text = "Anchor recommendation cancelled."; }
+            catch (Exception ex) { status.Text = "Could not recommend an anchor: " + ex.Message; }
+            finally
+            {
+                bodyDataProgress.Visible = false;
+                stopSearch.Enabled = false;
+                generate.Enabled = true;
+                recommendAnchor.Enabled = surveyMode.SelectedIndex == (int)SurveyMode.FirstDiscoveryExpedition;
+            }
+        }
+
+        private static StarSystem SelectAnchor(IEnumerable<StarSystem> systems)
+        {
+            return systems.Where(x => x != null && x.Coordinates != null && !x.RequiresPermit)
+                .OrderBy(x => x.IsColonised)
+                .ThenBy(x => IsHazardousAnchor(x.PrimaryStarType))
+                .ThenBy(x => x.DistanceFromCentre)
+                .FirstOrDefault();
+        }
+
+        private static bool IsHazardousAnchor(string starType)
+        {
+            var value = starType ?? "";
+            return value.IndexOf("Neutron", StringComparison.OrdinalIgnoreCase) >= 0
+                || value.IndexOf("White Dwarf", StringComparison.OrdinalIgnoreCase) >= 0
+                || value.IndexOf("Black Hole", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private void UseSelectedRecommendation()
+        {
+            if (anchorRecommendations.SelectedRows.Count == 0) return;
+            var recommendation = anchorRecommendations.SelectedRows[0].Tag as AnchorRecommendation;
+            if (recommendation == null) return;
+            expeditionAnchor.Text = recommendation.Anchor.Name;
+            panelCallbacks.SaveString?.Invoke("expedition_anchor", expeditionAnchor.Text);
+            status.Text = recommendation.Anchor.Name + " selected as the expedition anchor. Generate the route to copy it for Elite.";
+        }
+
         private async Task PrepareExpeditionAsync(StarSystem origin, CancellationToken token)
         {
             var anchorName = expeditionAnchor.Text.Trim();
@@ -600,7 +748,14 @@ namespace EliteColonisationSurveyor.Plugin
             var mode = CreateOptionGroup("Survey mode", 850);
             AddOptionRow(mode, 0, "Mode", surveyMode, "Choose colony candidates, catalogue completion, or an expedition aimed at first discoveries.");
             AddOptionRow(mode, 1, "Destination anchor", expeditionAnchor, "For first discovery: a distant known system used only to make Elite plot a route through unknown space.");
-            AddOptionRow(mode, 2, "Plotted route", importNavRoute, "After plotting the anchor in Elite, import NavRoute.json and cross-check its stops against both catalogues.");
+            AddOptionRow(mode, 2, "Expedition distance (ly)", expeditionDistance, "Distance used to distribute candidate regions around the current system.");
+            AddOptionRow(mode, 3, "Candidate directions", expeditionDirections, "Broad endpoint regions to sample; more directions improve coverage but require more EDSM requests.");
+            AddOptionRow(mode, 4, "Corridor samples", corridorSamples, "Evenly spaced regions inspected along each shortlisted corridor.");
+            AddOptionRow(mode, 5, "Anchor search", recommendAnchor, "Ranks endpoint and corridor catalogue sparsity, then returns up to three known anchors.");
+            mode.Controls.Add(anchorRecommendations, 0, 6);
+            mode.SetColumnSpan(anchorRecommendations, 3);
+            mode.Controls.Add(useRecommendedAnchor, 1, 7);
+            AddOptionRow(mode, 8, "Plotted route", importNavRoute, "After plotting the anchor in Elite, import NavRoute.json and cross-check its stops against both catalogues.");
 
             var area = CreateOptionGroup("Search area and route", 850);
             AddOptionRow(area, 0, "Source system", overrideSource, "Use the current ship system unless override is enabled.");
@@ -679,6 +834,12 @@ namespace EliteColonisationSurveyor.Plugin
             explorationKnownBodies.Enabled = completion && explorationFilter.SelectedIndex == (int)ExplorationFilterMode.AtMostKnownBodies;
             expeditionAnchor.Enabled = expedition;
             importNavRoute.Enabled = expedition;
+            expeditionDistance.Enabled = expedition;
+            expeditionDirections.Enabled = expedition;
+            corridorSamples.Enabled = expedition;
+            recommendAnchor.Enabled = expedition;
+            anchorRecommendations.Enabled = expedition;
+            useRecommendedAnchor.Enabled = expedition && anchorRecommendations.SelectedRows.Count > 0;
         }
 
         private TabPage BuildShortlistPage()
