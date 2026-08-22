@@ -40,6 +40,12 @@ commander's current star system. The first MVP:
   both EDSM and Spansh;
 - can recommend distant anchors by broadly sampling candidate endpoint regions,
   then measuring catalogue density along the most promising travel corridors;
+- generates those directions with a built-in galactic disc, bulge, spiral-arm
+  and vertical-density model, while penalising the main Sol–Colonia and
+  Sol–Sagittarius A* traffic corridors;
+- can optionally refine direction selection with cached EDAstro galaxy-density
+  and exploration-saturation map tiles, with automatic fallback to the built-in
+  model when EDAstro is unavailable;
 - uses primary-star journal scans to distinguish likely opportunities from
   systems confirmed as new or previously discovered in game;
 - offers catalogue completion with selectable EDSM or Spansh data sources;

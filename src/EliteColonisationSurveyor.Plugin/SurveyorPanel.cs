@@ -39,6 +39,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly NumericUpDown expeditionDistance = new NumericUpDown { Minimum = 500, Maximum = 20000, Value = 3000, Increment = 500, Width = 75, Enabled = false };
         private readonly NumericUpDown expeditionDirections = new NumericUpDown { Minimum = 4, Maximum = 24, Value = 12, Width = 60, Enabled = false };
         private readonly NumericUpDown corridorSamples = new NumericUpDown { Minimum = 3, Maximum = 12, Value = 6, Width = 60, Enabled = false };
+        private readonly CheckBox useEdAstroDirections = new CheckBox { Text = "Use EDAstro density and saturation maps", Checked = true, AutoSize = true, Enabled = false };
         private readonly Button recommendAnchor = new Button { Text = "Recommend anchors", AutoSize = true, Enabled = false };
         private readonly Button useRecommendedAnchor = new Button { Text = "Use selected anchor", AutoSize = true, Enabled = false };
         private readonly DataGridView anchorRecommendations = new DataGridView {
@@ -82,6 +83,7 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly Label scoreFormula = new Label { AutoSize = true, MaximumSize = new Size(700, 0) };
         private readonly ToolTip toolbarToolTips = new ToolTip();
         private readonly EdsmClient edsm = new EdsmClient();
+        private readonly EdAstroClient edAstro = new EdAstroClient();
         private readonly CandidateScorer scorer = new CandidateScorer();
         private readonly RoutePlanner planner = new RoutePlanner();
         private readonly AnchorRecommender anchorRecommender = new AnchorRecommender();
@@ -222,6 +224,7 @@ namespace EliteColonisationSurveyor.Plugin
             expeditionDistance.Value = Clamp(callbacks.GetDouble?.Invoke("expedition_distance", 3000) ?? 3000, expeditionDistance.Minimum, expeditionDistance.Maximum);
             expeditionDirections.Value = Clamp(callbacks.GetInt?.Invoke("expedition_directions", 12) ?? 12, expeditionDirections.Minimum, expeditionDirections.Maximum);
             corridorSamples.Value = Clamp(callbacks.GetInt?.Invoke("corridor_samples", 6) ?? 6, corridorSamples.Minimum, corridorSamples.Maximum);
+            useEdAstroDirections.Checked = (callbacks.GetInt?.Invoke("use_edastro_directions", 1) ?? 1) != 0;
             autoCopyNext.Checked = (callbacks.GetInt?.Invoke("auto_copy_next", 0) ?? 0) != 0;
             LoadScoreWeights(callbacks);
             LoadShortlist(callbacks);
@@ -471,7 +474,36 @@ namespace EliteColonisationSurveyor.Plugin
 
                 var directionCount = (int)expeditionDirections.Value;
                 var sampleCount = (int)corridorSamples.Value;
-                var targets = anchorRecommender.GenerateTargets(origin.Coordinates, (double)expeditionDistance.Value, directionCount);
+                var geometryCandidates = anchorRecommender.GenerateDirectionCandidates(origin.Coordinates,
+                    (double)expeditionDistance.Value, directionCount).Take(Math.Min(72, directionCount * 3)).ToList();
+                var externalCompleted = 0;
+                if (useEdAstroDirections.Checked)
+                {
+                    status.Text = "Comparing candidate corridors with EDAstro density and saturation maps…";
+                    foreach (var candidate in geometryCandidates)
+                    {
+                        var mapSamples = new List<EdAstroSample>();
+                        foreach (var point in anchorRecommender.GenerateCorridorSamples(origin.Coordinates, candidate.Target, 8).Skip(1))
+                        {
+                            try {
+                                var sample = await edAstro.SampleAsync(point, cancellation.Token);
+                                if (sample.Available) mapSamples.Add(sample);
+                            }
+                            catch (OperationCanceledException) { throw; }
+                            catch { /* The built-in geometry model remains the fallback. */ }
+                        }
+                        if (mapSamples.Count > 0)
+                        {
+                            candidate.ExternalDensity = mapSamples.Average(x => x.Density);
+                            candidate.ExternalUnexplored = mapSamples.Average(x => x.Unexplored);
+                            candidate.ExternalDataAvailable = true;
+                            externalCompleted++;
+                        }
+                    }
+                }
+                var selectedDirections = geometryCandidates.OrderByDescending(AnchorRecommender.CombinedDirectionScore)
+                    .Take(directionCount).ToList();
+                var targets = selectedDirections.Select(x => x.Target).ToList();
                 var broad = new List<AnchorSample>();
                 var endpointFailures = 0;
                 var completed = 0;
@@ -494,7 +526,14 @@ namespace EliteColonisationSurveyor.Plugin
                             var expanded = await edsm.GetSphereAtCoordinatesAsync(target, 100, cancellation.Token);
                             anchor = SelectAnchor(expanded);
                         }
-                        if (anchor != null) broad.Add(new AnchorSample { Anchor = anchor, Target = target, EndpointKnownSystems = systems.Count });
+                        var direction = selectedDirections.First(x => ReferenceEquals(x.Target, target));
+                        if (anchor != null) broad.Add(new AnchorSample {
+                            Anchor = anchor, Target = target, EndpointKnownSystems = systems.Count,
+                            DirectionScore = AnchorRecommender.CombinedDirectionScore(direction),
+                            ExpectedDensity = direction.ExternalDataAvailable ? direction.ExternalDensity : direction.MeanDensity,
+                            ExplorationPotential = direction.ExternalUnexplored,
+                            UsedExternalMap = direction.ExternalDataAvailable
+                        });
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex) {
@@ -543,7 +582,10 @@ namespace EliteColonisationSurveyor.Plugin
                 panelCallbacks.SaveDouble?.Invoke("expedition_distance", (double)expeditionDistance.Value);
                 panelCallbacks.SaveInt?.Invoke("expedition_directions", directionCount);
                 panelCallbacks.SaveInt?.Invoke("corridor_samples", sampleCount);
-                status.Text = recommendedAnchors.Count + " anchor recommendation(s) ranked. Lower catalogue counts indicate quieter corridors.";
+                panelCallbacks.SaveInt?.Invoke("use_edastro_directions", useEdAstroDirections.Checked ? 1 : 0);
+                status.Text = recommendedAnchors.Count + " anchor recommendation(s) ranked using galactic geometry"
+                    + (externalCompleted > 0 ? ", EDAstro density/saturation" : useEdAstroDirections.Checked ? " (EDAstro unavailable; built-in fallback used)" : "")
+                    + " and live EDSM corridor samples.";
             }
             catch (OperationCanceledException) { status.Text = "Anchor recommendation cancelled."; }
             catch (Exception ex) { status.Text = "Could not recommend an anchor: " + ex.Message; }
@@ -762,11 +804,12 @@ namespace EliteColonisationSurveyor.Plugin
             AddOptionRow(mode, 2, "Expedition distance (ly)", expeditionDistance, "Distance used to distribute candidate regions around the current system.");
             AddOptionRow(mode, 3, "Candidate directions", expeditionDirections, "Broad endpoint regions to sample; more directions improve coverage but require more EDSM requests.");
             AddOptionRow(mode, 4, "Corridor samples", corridorSamples, "Evenly spaced regions inspected along each shortlisted corridor.");
-            AddOptionRow(mode, 5, "Anchor search", recommendAnchor, "Ranks endpoint and corridor catalogue sparsity, then returns up to three known anchors.");
-            mode.Controls.Add(anchorRecommendations, 0, 6);
+            AddOptionRow(mode, 5, "Direction intelligence", useEdAstroDirections, "Optionally combines the built-in Milky Way density model with cached EDAstro galaxy and exploration-saturation tiles. Data: EDAstro, EDDN and EDSM.");
+            AddOptionRow(mode, 6, "Anchor search", recommendAnchor, "Ranks geometry, expected density, exploration saturation and live EDSM corridor samples.");
+            mode.Controls.Add(anchorRecommendations, 0, 7);
             mode.SetColumnSpan(anchorRecommendations, 3);
-            mode.Controls.Add(useRecommendedAnchor, 1, 7);
-            AddOptionRow(mode, 8, "Plotted route", importNavRoute, "After plotting the anchor in Elite, import NavRoute.json and cross-check its stops against both catalogues.");
+            mode.Controls.Add(useRecommendedAnchor, 1, 8);
+            AddOptionRow(mode, 9, "Plotted route", importNavRoute, "After plotting the anchor in Elite, import NavRoute.json and cross-check its stops against both catalogues.");
 
             var area = CreateOptionGroup("Search area and route", 850);
             AddOptionRow(area, 0, "Source system", overrideSource, "Use the current ship system unless override is enabled.");
@@ -848,6 +891,7 @@ namespace EliteColonisationSurveyor.Plugin
             expeditionDistance.Enabled = expedition;
             expeditionDirections.Enabled = expedition;
             corridorSamples.Enabled = expedition;
+            useEdAstroDirections.Enabled = expedition;
             recommendAnchor.Enabled = expedition;
             anchorRecommendations.Enabled = expedition;
             useRecommendedAnchor.Enabled = expedition && anchorRecommendations.SelectedRows.Count > 0;
