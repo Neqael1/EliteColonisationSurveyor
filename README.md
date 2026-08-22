@@ -34,17 +34,23 @@ commander's current star system. The first MVP:
 - tracks progress through the generated route, identifies and copies the next
   waypoint for Galaxy Map search, and can auto-copy it after each successful
   hyperspace jump;
-- offers an Exploration mode with selectable EDSM or Spansh data sources;
+- separates catalogue-completion surveys from first-discovery expeditions;
+- creates first-discovery expeditions around a distant known anchor, imports the
+  route plotted by Elite from `NavRoute.json`, and highlights stops absent from
+  both EDSM and Spansh;
+- uses primary-star journal scans to distinguish likely opportunities from
+  systems confirmed as new or previously discovered in game;
+- offers catalogue completion with selectable EDSM or Spansh data sources;
 - when Spansh is selected, cross-checks EDSM and combines the catalogues so a
   system is not considered unexplored merely because one service lacks data;
 - can target systems with no body data, incomplete catalogues, body-data
   completeness below a chosen percentage, or no more than a chosen number of
   known bodies, without treating lookup failures as unexplored;
 - can insert a configurable number of known-data bridge systems between
-  Exploration-mode targets when the ship cannot reach them directly;
+  catalogue-completion targets when the ship cannot reach them directly;
 - pushes the resulting star list into EDDiscovery's Expedition panel;
-- keeps the main toolbar compact with icon actions while detailed search and
-  waypoint controls live on a dedicated Options tab.
+- keeps the main toolbar compact with icon actions while grouped search,
+  waypoint and scoring controls live on a dedicated Options tab.
 
 This is an independent, unofficial project and is not endorsed by Frontier
 Developments or the EDDiscovery team.
@@ -136,10 +142,13 @@ The EDDiscovery interface source is vendored from
 EDSM only returns systems already submitted by commanders, so the search field
 is a survey pattern over *known* stars rather than a complete catalogue of every
 procedurally generated star. The public sphere API has a maximum radius of 100
-ly, which the panel enforces. Spansh is available as an Exploration-mode body
+ly, which the panel enforces. Spansh is available as a catalogue-completion
 data source; its results are automatically cross-checked with EDSM. Missing
 catalogue data is evidence of an exploration opportunity, not proof that a
-system has never been visited. A candidate score is guidance, not a guarantee
+system has never been visited. First-discovery mode therefore uses a known
+system only as a distant anchor, imports the jump chain plotted by Elite, and
+labels catalogue-absent stops as likely new until a primary-star scan reports
+the in-game discovery state. A candidate score is guidance, not a guarantee
 of in-game colonisation eligibility; eligibility and body details must be
 checked in game as systems are visited.
 

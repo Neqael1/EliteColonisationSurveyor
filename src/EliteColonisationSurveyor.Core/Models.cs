@@ -26,6 +26,22 @@ namespace EliteColonisationSurveyor.Core
         Spansh
     }
 
+    public enum SurveyMode
+    {
+        Colonisation,
+        CatalogueCompletion,
+        FirstDiscoveryExpedition
+    }
+
+    public enum CataloguePresence
+    {
+        Unknown,
+        NotListed,
+        EdsmOnly,
+        SpanshOnly,
+        EdsmAndSpansh
+    }
+
     public enum ExplorationFilterMode
     {
         NoBodyData,
@@ -77,6 +93,10 @@ namespace EliteColonisationSurveyor.Core
         public int ValuableRingCount { get; set; }
         public double NearestUsefulArrivalLs { get; set; }
         public bool IsRouteBridge { get; set; }
+        public CataloguePresence CataloguePresence { get; set; }
+        public bool CatalogueLookupAttempted { get; set; }
+        public bool WasDiscoveredInGame { get; set; }
+        public bool DiscoveryStatusKnown { get; set; }
 
         public bool IsColonised => Population > 0
             || !string.IsNullOrWhiteSpace(Allegiance)

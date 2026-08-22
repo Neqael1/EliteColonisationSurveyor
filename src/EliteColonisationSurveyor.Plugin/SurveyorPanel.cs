@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,12 +29,14 @@ namespace EliteColonisationSurveyor.Plugin
         private readonly NumericUpDown coneAngle = new NumericUpDown { Minimum = 1, Maximum = 180, Value = 45, Width = 65, Enabled = false };
         private readonly CheckBox unpopulated = new CheckBox { Text = "Exclude colonised", Checked = true, AutoSize = true };
         private readonly CheckBox noPermit = new CheckBox { Text = "Exclude permit-locked", Checked = true, AutoSize = true };
-        private readonly CheckBox explorationMode = new CheckBox { Text = "Exploration mode (no EDSM body data)", AutoSize = true };
+        private readonly ComboBox surveyMode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210 };
         private readonly ComboBox explorationSource = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110, Enabled = false };
         private readonly ComboBox explorationFilter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, Enabled = false };
         private readonly NumericUpDown explorationCompleteness = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 25, Width = 65, Enabled = false };
         private readonly NumericUpDown explorationKnownBodies = new NumericUpDown { Minimum = 0, Maximum = 100, Value = 0, Width = 65, Enabled = false };
         private readonly NumericUpDown explorationBridges = new NumericUpDown { Minimum = 0, Maximum = 10, Value = 2, Width = 48, Enabled = false };
+        private readonly TextBox expeditionAnchor = new TextBox { Width = 220, Enabled = false };
+        private readonly Button importNavRoute = new Button { Text = "Import plotted route", AutoSize = true, Enabled = false };
         private readonly CheckBox useMinimumScore = new CheckBox { Text = "Minimum score", AutoSize = true };
         private readonly NumericUpDown minimumScore = new NumericUpDown { Minimum = -1000, Maximum = 1000, Value = 75, DecimalPlaces = 1, Width = 70, Enabled = false };
         private readonly Button generate = new Button { Size = new Size(34, 30) };
@@ -91,6 +94,8 @@ namespace EliteColonisationSurveyor.Plugin
             searchPattern.SelectedIndex = 0;
             fieldShape.Items.AddRange(new object[] { "Sphere", "Cone" });
             fieldShape.SelectedIndex = 0;
+            surveyMode.Items.AddRange(new object[] { "Colonisation survey", "Catalogue completion", "First-discovery expedition" });
+            surveyMode.SelectedIndex = (int)SurveyMode.Colonisation;
             explorationSource.Items.AddRange(new object[] { "EDSM", "Spansh + EDSM" });
             explorationSource.SelectedIndex = (int)ExplorationDataSource.Spansh;
             explorationFilter.Items.AddRange(new object[] { "No body data", "Incomplete catalogue", "Below completeness %", "At most known bodies" });
@@ -106,8 +111,7 @@ namespace EliteColonisationSurveyor.Plugin
                 generate, stopSearch, push, copyNext, shortlistCurrent
             });
             useMinimumScore.CheckedChanged += (_, __) => minimumScore.Enabled = useMinimumScore.Checked;
-            explorationMode.Text = "Exploration mode";
-            explorationMode.CheckedChanged += (_, __) => UpdateExplorationOptionState();
+            surveyMode.SelectedIndexChanged += (_, __) => UpdateExplorationOptionState();
             explorationFilter.SelectedIndexChanged += (_, __) => UpdateExplorationOptionState();
             overrideSource.CheckedChanged += (_, __) => sourceSystem.Enabled = overrideSource.Checked;
             fieldShape.SelectedIndexChanged += (_, __) => UpdateConeOptionState();
@@ -146,14 +150,12 @@ namespace EliteColonisationSurveyor.Plugin
             mapTools.Controls.Add(new Label { Text = "Drag to rotate · Wheel to zoom", AutoSize = true, Padding = new Padding(8, 6, 0, 0) });
             mapPage.Controls.Add(routeMap);
             mapPage.Controls.Add(mapTools);
-            var scoringPage = BuildScoringPage();
             var shortlistPage = BuildShortlistPage();
             var optionsPage = BuildOptionsPage();
             tabs.TabPages.Add(routePage);
             tabs.TabPages.Add(mapPage);
             tabs.TabPages.Add(optionsPage);
             tabs.TabPages.Add(shortlistPage);
-            tabs.TabPages.Add(scoringPage);
             Controls.Add(tabs);
             Controls.Add(details);
             Controls.Add(inputs);
@@ -163,6 +165,7 @@ namespace EliteColonisationSurveyor.Plugin
             copyNext.Click += (_, __) => CopyNextWaypoint(true);
             autoCopyNext.CheckedChanged += (_, __) => panelCallbacks?.SaveInt?.Invoke("auto_copy_next", autoCopyNext.Checked ? 1 : 0);
             shortlistCurrent.Click += (_, __) => ToggleCurrentShortlist();
+            importNavRoute.Click += async (_, __) => await ImportNavRouteAsync();
         }
 
         internal static void PublishLocation(EDDDLLIF.JournalEntry entry)
@@ -185,12 +188,16 @@ namespace EliteColonisationSurveyor.Plugin
             fieldShape.SelectedIndex = Math.Max(0, Math.Min(1, callbacks.GetInt?.Invoke("field_shape", 0) ?? 0));
             coneDirectionSystem.Text = callbacks.GetString?.Invoke("cone_direction_system", "") ?? "";
             coneAngle.Value = Clamp(callbacks.GetDouble?.Invoke("cone_angle", 45) ?? 45, coneAngle.Minimum, coneAngle.Maximum);
-            explorationMode.Checked = (callbacks.GetInt?.Invoke("exploration_mode", 0) ?? 0) != 0;
+            var savedMode = callbacks.GetInt?.Invoke("survey_mode", -1) ?? -1;
+            if (savedMode < 0) savedMode = (callbacks.GetInt?.Invoke("exploration_mode", 0) ?? 0) != 0
+                ? (int)SurveyMode.CatalogueCompletion : (int)SurveyMode.Colonisation;
+            surveyMode.SelectedIndex = Math.Max(0, Math.Min(2, savedMode));
             explorationSource.SelectedIndex = Math.Max(0, Math.Min(1, callbacks.GetInt?.Invoke("exploration_source", 1) ?? 1));
             explorationFilter.SelectedIndex = Math.Max(0, Math.Min(3, callbacks.GetInt?.Invoke("exploration_filter", 0) ?? 0));
             explorationCompleteness.Value = Clamp(callbacks.GetDouble?.Invoke("exploration_completeness", 25) ?? 25, 0, 100);
             explorationKnownBodies.Value = Clamp(callbacks.GetInt?.Invoke("exploration_known_bodies", 0) ?? 0, 0, 100);
             explorationBridges.Value = Clamp(callbacks.GetInt?.Invoke("exploration_bridges", 2) ?? 2, explorationBridges.Minimum, explorationBridges.Maximum);
+            expeditionAnchor.Text = callbacks.GetString?.Invoke("expedition_anchor", "") ?? "";
             autoCopyNext.Checked = (callbacks.GetInt?.Invoke("auto_copy_next", 0) ?? 0) != 0;
             LoadScoreWeights(callbacks);
             LoadShortlist(callbacks);
@@ -210,7 +217,7 @@ namespace EliteColonisationSurveyor.Plugin
         private void OnLocationChanged(EDDDLLIF.JournalEntry entry)
         {
             if (InvokeRequired) { BeginInvoke(new Action(() => OnLocationChanged(entry))); return; }
-            if (string.IsNullOrWhiteSpace(entry.systemname)) return;
+            if (string.IsNullOrWhiteSpace(entry.systemname)) { UpdateDiscoveryStatus(entry); return; }
             var isJump = IsFsdJump(entry);
             currentSystem = new StarSystem { Name = entry.systemname, Coordinates = new Coordinates { X = entry.x, Y = entry.y, Z = entry.z } };
             centre.Text = entry.systemname;
@@ -222,6 +229,33 @@ namespace EliteColonisationSurveyor.Plugin
             UpdateShortlistCurrentButton();
             if (isJump)
                 AdvanceRouteProgress(entry.systemname);
+            UpdateDiscoveryStatus(entry);
+        }
+
+        private void UpdateDiscoveryStatus(EDDDLLIF.JournalEntry entry)
+        {
+            if (string.IsNullOrWhiteSpace(entry.json) || route.Count == 0) return;
+            try
+            {
+                var journal = new JavaScriptSerializer().DeserializeObject(entry.json) as IDictionary<string, object>;
+                if (journal == null || !journal.ContainsKey("event")
+                    || !string.Equals(Convert.ToString(journal["event"]), "Scan", StringComparison.OrdinalIgnoreCase)
+                    || !journal.ContainsKey("WasDiscovered")) return;
+                var systemName = journal.ContainsKey("StarSystem") ? Convert.ToString(journal["StarSystem"]) : entry.systemname;
+                var bodyName = journal.ContainsKey("BodyName") ? Convert.ToString(journal["BodyName"]) : "";
+                var isPrimary = journal.ContainsKey("BodyID") && Convert.ToInt32(journal["BodyID"]) == 0
+                    || string.Equals(bodyName, systemName, StringComparison.OrdinalIgnoreCase);
+                if (!isPrimary || string.IsNullOrWhiteSpace(systemName)) return;
+                var system = route.FirstOrDefault(x => x.Name.Equals(systemName, StringComparison.OrdinalIgnoreCase));
+                if (system == null) return;
+                system.DiscoveryStatusKnown = true;
+                system.WasDiscoveredInGame = Convert.ToBoolean(journal["WasDiscovered"]);
+                RenderRoute();
+                status.Text = system.WasDiscoveredInGame
+                    ? system.Name + " was previously discovered."
+                    : system.Name + " is confirmed undiscovered by the primary-star scan.";
+            }
+            catch { /* Ignore journal records without the expected scan shape. */ }
         }
 
         private static bool IsFsdJump(EDDDLLIF.JournalEntry entry)
@@ -245,7 +279,8 @@ namespace EliteColonisationSurveyor.Plugin
         private async Task GenerateAsync()
         {
             if (currentSystem == null && !overrideSource.Checked) { status.Text = "No current system received from EDDiscovery yet."; return; }
-            if (currentShip.JumpRange <= 0) { status.Text = "Cannot generate a safe route: ship jump range is unavailable."; return; }
+            if (currentShip.JumpRange <= 0 && surveyMode.SelectedIndex != (int)SurveyMode.FirstDiscoveryExpedition)
+            { status.Text = "Cannot generate a safe route: ship jump range is unavailable."; return; }
             cancellation?.Cancel();
             cancellation = new CancellationTokenSource();
             generate.Enabled = false;
@@ -261,6 +296,12 @@ namespace EliteColonisationSurveyor.Plugin
                     status.Text = "Resolving source system from EDSM…";
                     searchOrigin = await edsm.GetSystemAsync(sourceSystem.Text.Trim(), cancellation.Token);
                     if (searchOrigin == null) throw new InvalidOperationException("EDSM could not find coordinates for the source system.");
+                }
+
+                if (surveyMode.SelectedIndex == (int)SurveyMode.FirstDiscoveryExpedition)
+                {
+                    await PrepareExpeditionAsync(searchOrigin, cancellation.Token);
+                    return;
                 }
 
                 Coordinates coneDirection = null;
@@ -282,9 +323,9 @@ namespace EliteColonisationSurveyor.Plugin
                 var settings = new SearchSettings {
                     RadiusLy = (double)radius.Value, MaximumSystems = (int)maximum.Value,
                     ExcludeColonised = unpopulated.Checked, ExcludePermitLocked = noPermit.Checked,
-                    OnlySystemsWithoutBodyData = explorationMode.Checked,
+                    OnlySystemsWithoutBodyData = surveyMode.SelectedIndex == (int)SurveyMode.CatalogueCompletion,
                     MaximumBridgeSystems = (int)explorationBridges.Value,
-                    ExplorationSource = explorationMode.Checked
+                    ExplorationSource = surveyMode.SelectedIndex == (int)SurveyMode.CatalogueCompletion
                         ? (ExplorationDataSource)explorationSource.SelectedIndex
                         : ExplorationDataSource.Edsm,
                     ExplorationFilter = (ExplorationFilterMode)explorationFilter.SelectedIndex,
@@ -335,7 +376,8 @@ namespace EliteColonisationSurveyor.Plugin
                 panelCallbacks.SaveInt?.Invoke("pattern", searchPattern.SelectedIndex);
                 panelCallbacks.SaveInt?.Invoke("minimum_score_enabled", useMinimumScore.Checked ? 1 : 0);
                 panelCallbacks.SaveDouble?.Invoke("minimum_score", (double)minimumScore.Value);
-                panelCallbacks.SaveInt?.Invoke("exploration_mode", explorationMode.Checked ? 1 : 0);
+                panelCallbacks.SaveInt?.Invoke("survey_mode", surveyMode.SelectedIndex);
+                panelCallbacks.SaveInt?.Invoke("exploration_mode", settings.OnlySystemsWithoutBodyData ? 1 : 0);
                 panelCallbacks.SaveInt?.Invoke("exploration_bridges", settings.MaximumBridgeSystems);
                 panelCallbacks.SaveInt?.Invoke("exploration_source", explorationSource.SelectedIndex);
                 panelCallbacks.SaveInt?.Invoke("exploration_filter", explorationFilter.SelectedIndex);
@@ -351,7 +393,7 @@ namespace EliteColonisationSurveyor.Plugin
                 var targetCount = route.Skip(1).Count(x => !x.IsRouteBridge);
                 var bridgeCount = route.Skip(1).Count(x => x.IsRouteBridge);
                 var skipped = ranked.Count - targetCount;
-                status.Text = explorationMode.Checked && route.Count <= 1
+                status.Text = settings.OnlySystemsWithoutBodyData && route.Count <= 1
                     ? "No systems matched the selected exploration-data filter"
                         + (settings.ExplorationSource == ExplorationDataSource.Spansh ? " in Spansh and EDSM." : " in EDSM.")
                     : targetCount + (settings.OnlySystemsWithoutBodyData ? " exploration targets" : " candidates")
@@ -382,6 +424,86 @@ namespace EliteColonisationSurveyor.Plugin
             cancellation.Cancel();
         }
 
+        private async Task PrepareExpeditionAsync(StarSystem origin, CancellationToken token)
+        {
+            var anchorName = expeditionAnchor.Text.Trim();
+            if (anchorName.Length == 0) throw new InvalidOperationException("Enter a distant destination anchor in Options.");
+            status.Text = "Resolving expedition anchor from EDSM…";
+            var anchor = await edsm.GetSystemAsync(anchorName, token);
+            if (anchor == null) throw new InvalidOperationException("EDSM could not find the expedition anchor.");
+            anchor.DistanceFromCentre = origin.Coordinates.DistanceTo(anchor.Coordinates);
+            route = new List<StarSystem> { origin, anchor };
+            completedRouteIndex = 0;
+            RenderRoute();
+            routeMap.SetRoute(route);
+            panelCallbacks.SaveInt?.Invoke("survey_mode", surveyMode.SelectedIndex);
+            panelCallbacks.SaveString?.Invoke("expedition_anchor", anchorName);
+            push.Enabled = false;
+            copyNext.Enabled = true;
+            Clipboard.SetText(anchor.Name);
+            status.Text = "Anchor copied. Plot it in Elite, then import NavRoute.json to identify likely-new stops.";
+            UpdateRouteProgressDisplay();
+        }
+
+        private async Task ImportNavRouteAsync()
+        {
+            var defaultDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Saved Games", "Frontier Developments", "Elite Dangerous");
+            using (var dialog = new OpenFileDialog {
+                Title = "Import Elite Dangerous plotted route",
+                Filter = "Elite NavRoute (NavRoute.json)|NavRoute.json|JSON files (*.json)|*.json",
+                InitialDirectory = Directory.Exists(defaultDirectory) ? defaultDirectory : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    cancellation?.Cancel();
+                    cancellation = new CancellationTokenSource();
+                    importNavRoute.Enabled = false;
+                    stopSearch.Enabled = true;
+                    var document = new JavaScriptSerializer().Deserialize<NavRouteDocument>(File.ReadAllText(dialog.FileName));
+                    var plotted = (document?.Route ?? new List<NavRouteSystem>())
+                        .Where(x => x != null && !string.IsNullOrWhiteSpace(x.StarSystem) && x.StarPos != null && x.StarPos.Length >= 3)
+                        .Select(x => new StarSystem {
+                            Name = x.StarSystem, SystemAddress = x.SystemAddress, PrimaryStarType = x.StarClass,
+                            Coordinates = new Coordinates { X = x.StarPos[0], Y = x.StarPos[1], Z = x.StarPos[2] }
+                        }).ToList();
+                    if (plotted.Count < 2) throw new InvalidOperationException("The file does not contain a multi-system plotted route.");
+                    var origin = plotted[0];
+                    foreach (var system in plotted) system.DistanceFromCentre = origin.Coordinates.DistanceTo(system.Coordinates);
+                    bodyDataProgress.Minimum = 0;
+                    bodyDataProgress.Maximum = plotted.Count;
+                    bodyDataProgress.Value = 0;
+                    bodyDataProgress.Visible = true;
+                    var progress = new Progress<int>(completed => {
+                        bodyDataProgress.Value = Math.Min(completed, bodyDataProgress.Maximum);
+                        status.Text = "Checking plotted systems " + completed + "/" + plotted.Count + " against EDSM and Spansh…";
+                    });
+                    await edsm.CheckCataloguePresenceAsync(plotted, progress, cancellation.Token);
+                    route = plotted;
+                    completedRouteIndex = 0;
+                    RenderRoute();
+                    routeMap.SetRoute(route);
+                    var likelyNew = route.Skip(1).Count(x => x.CataloguePresence == CataloguePresence.NotListed);
+                    status.Text = likelyNew + " of " + (route.Count - 1) + " plotted stops are absent from both catalogues and are likely discovery opportunities.";
+                    push.Enabled = route.Count > 1 && panelCallbacks.PushStars != null;
+                    UpdateRouteProgressDisplay();
+                }
+                catch (OperationCanceledException) { status.Text = "Route import cancelled."; }
+                catch (Exception ex) { status.Text = "Could not import plotted route: " + ex.Message; }
+                finally
+                {
+                    bodyDataProgress.Visible = false;
+                    stopSearch.Enabled = false;
+                    importNavRoute.Enabled = true;
+                }
+            }
+        }
+
+        private sealed class NavRouteDocument { public List<NavRouteSystem> Route; }
+        private sealed class NavRouteSystem { public string StarSystem; public long SystemAddress; public double[] StarPos; public string StarClass; }
+
         private void RenderRoute()
         {
             grid.Rows.Clear();
@@ -389,9 +511,15 @@ namespace EliteColonisationSurveyor.Plugin
             {
                 var system = route[i];
                 var state = i <= completedRouteIndex ? "Visited" : i == completedRouteIndex + 1 ? "Next" : "Pending";
-                var dataState = system.IsRouteBridge ? "Known bridge"
+                var dataState = system.DiscoveryStatusKnown ? (system.WasDiscoveredInGame ? "Discovered" : "Confirmed new")
+                    : system.CataloguePresence == CataloguePresence.NotListed ? "Likely new"
+                    : system.CataloguePresence == CataloguePresence.EdsmAndSpansh ? "EDSM + Spansh"
+                    : system.CataloguePresence == CataloguePresence.EdsmOnly ? "EDSM only"
+                    : system.CataloguePresence == CataloguePresence.SpanshOnly ? "Spansh only"
+                    : system.CatalogueLookupAttempted ? "Lookup failed"
+                    : system.IsRouteBridge ? "Known bridge"
                     : system.BodyDataLookupSucceeded ? system.KnownBodyCount + "/" + (system.ExpectedBodyCount > 0 ? system.ExpectedBodyCount.ToString() : "?") + " bodies"
-                    : "Lookup failed";
+                    : "Not checked";
                 var rowIndex = grid.Rows.Add(i, state, dataState, system.Name,
                     route[i - 1].Coordinates.DistanceTo(system.Coordinates).ToString("0.00"),
                     system.DistanceFromCentre.ToString("0.00"), system.CandidateScore.ToString("0.0"), system.PrimaryStarType ?? "?", system.ScoreBreakdown);
@@ -466,50 +594,63 @@ namespace EliteColonisationSurveyor.Plugin
         private TabPage BuildOptionsPage()
         {
             var page = new TabPage("Options") { AutoScroll = true };
-            var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(12), ColumnCount = 3 };
+            var sections = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(8) };
+
+            var mode = CreateOptionGroup("Survey mode", 850);
+            AddOptionRow(mode, 0, "Mode", surveyMode, "Choose colony candidates, catalogue completion, or an expedition aimed at first discoveries.");
+            AddOptionRow(mode, 1, "Destination anchor", expeditionAnchor, "For first discovery: a distant known system used only to make Elite plot a route through unknown space.");
+            AddOptionRow(mode, 2, "Plotted route", importNavRoute, "After plotting the anchor in Elite, import NavRoute.json and cross-check its stops against both catalogues.");
+
+            var area = CreateOptionGroup("Search area and route", 850);
+            AddOptionRow(area, 0, "Source system", overrideSource, "Use the current ship system unless override is enabled.");
+            AddOptionRow(area, 1, "Override name", sourceSystem, "Named EDSM system to use instead of the current location.");
+            AddOptionRow(area, 2, "Search field", fieldShape, "Sphere searches every direction; cone searches toward a named system.");
+            AddOptionRow(area, 3, "Cone direction", coneDirectionSystem, "Star defining the cone axis; it may be beyond the search distance.");
+            AddOptionRow(area, 4, "Cone full angle (°)", coneAngle, "Full opening angle from 1° to 180°.");
+            AddOptionRow(area, 5, "Distance (ly)", radius, "Catalogue search radius or cone length, up to EDSM's 100 ly limit.");
+            AddOptionRow(area, 6, "Maximum targets", maximum, "Limits target systems; bridge systems are additional stops.");
+            AddOptionRow(area, 7, "Route pattern", searchPattern, "Controls target ordering while preserving jump-range safety.");
+
+            var eligibility = CreateOptionGroup("Eligibility and catalogue completion", 850);
+            AddOptionRow(eligibility, 0, "Colonisation", unpopulated, "Remove systems with population or habitation metadata.");
+            AddOptionRow(eligibility, 1, "Permits", noPermit, "Remove permit-locked systems.");
+            AddOptionRow(eligibility, 2, "Catalogue source", explorationSource, "Completion mode cross-checks Spansh with EDSM by default.");
+            AddOptionRow(eligibility, 3, "Completion filter", explorationFilter, "Choose missing, incomplete, percentage-based, or known-body-count data.");
+            AddOptionRow(eligibility, 4, "Maximum completeness (%)", explorationCompleteness, "Used only by the completeness-percentage filter.");
+            AddOptionRow(eligibility, 5, "Maximum known bodies", explorationKnownBodies, "Used only by the known-body-count filter.");
+            AddOptionRow(eligibility, 6, "Known bridges per gap", explorationBridges, "Known connector systems allowed between catalogue-completion targets.");
+
+            var assistance = CreateOptionGroup("Scoring and waypoint assistance", 850);
+            AddOptionRow(assistance, 0, "Score cutoff", useMinimumScore, "Exclude candidates below the selected minimum score.");
+            AddOptionRow(assistance, 1, "Minimum score", minimumScore, "Applied only when Score cutoff is enabled.");
+            AddOptionRow(assistance, 2, "Waypoint assistance", autoCopyNext, "Copy the next system automatically after each planned jump.");
+
+            var scoringPage = BuildScoringPage();
+            var scoring = scoringPage.Controls[0];
+            scoringPage.Controls.Remove(scoring);
+            var scoringGroup = new GroupBox { Text = "Scoring coefficients", AutoSize = true, Width = 850, Padding = new Padding(8) };
+            scoring.Dock = DockStyle.Top;
+            scoringGroup.Controls.Add(scoring);
+
+            sections.Controls.Add((Control)mode.Tag);
+            sections.Controls.Add((Control)area.Tag);
+            sections.Controls.Add((Control)eligibility.Tag);
+            sections.Controls.Add((Control)assistance.Tag);
+            sections.Controls.Add(scoringGroup);
+            page.Controls.Add(sections);
+            return page;
+        }
+
+        private static TableLayoutPanel CreateOptionGroup(string title, int width)
+        {
+            var group = new GroupBox { Text = title, AutoSize = true, Width = width, Padding = new Padding(8), Margin = new Padding(4, 4, 4, 10) };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            AddOptionRow(layout, 0, "Source system", overrideSource,
-                "Use the current ship system unless override is enabled.");
-            layout.Controls.Add(sourceSystem, 1, 1);
-            layout.Controls.Add(new Label { Text = "Override system name", AutoSize = true, Margin = new Padding(12, 8, 3, 3) }, 2, 1);
-            AddOptionRow(layout, 2, "Search field", fieldShape,
-                "Sphere searches in every direction. Cone searches toward another named system.");
-            AddOptionRow(layout, 3, "Cone direction", coneDirectionSystem,
-                "Star defining the cone axis; it may be beyond the search distance.");
-            AddOptionRow(layout, 4, "Cone full angle (°)", coneAngle,
-                "Full opening angle from 1° to 180°.");
-            AddOptionRow(layout, 5, "Distance (ly)", radius,
-                "Sphere radius or cone length, up to EDSM's 100 ly sphere limit.");
-            AddOptionRow(layout, 6, "Maximum target systems", maximum,
-                "Limits survey targets; required bridge systems are additional stops.");
-            AddOptionRow(layout, 7, "Route pattern", searchPattern,
-                "Controls target ordering while preserving jump-range safety.");
-            AddOptionRow(layout, 8, "Eligibility", unpopulated,
-                "Remove systems with population or habitation metadata.");
-            layout.Controls.Add(noPermit, 1, 9);
-            layout.Controls.Add(new Label { Text = "Remove permit-locked systems.", AutoSize = true, Margin = new Padding(12, 8, 3, 3) }, 2, 9);
-            AddOptionRow(layout, 10, "Exploration", explorationMode,
-                "Prioritise systems matching the selected exploration-data level.");
-            AddOptionRow(layout, 11, "Exploration source", explorationSource,
-                "Exploration defaults to Spansh cross-checked against EDSM; normal surveys always use EDSM.");
-            AddOptionRow(layout, 12, "Exploration filter", explorationFilter,
-                "Choose untouched, incomplete, percentage-based, or known-body-count filtering.");
-            AddOptionRow(layout, 13, "Maximum completeness (%)", explorationCompleteness,
-                "Used by Below completeness %; zero retains systems with no known bodies.");
-            AddOptionRow(layout, 14, "Maximum known bodies", explorationKnownBodies,
-                "Used by At most known bodies, including systems whose total count is unknown.");
-            AddOptionRow(layout, 15, "Known bridges per gap", explorationBridges,
-                "Maximum known-data connector systems between exploration targets; zero is strict mode.");
-            AddOptionRow(layout, 16, "Score cutoff", useMinimumScore,
-                "Exclude candidates below the selected minimum score.");
-            layout.Controls.Add(minimumScore, 1, 17);
-            AddOptionRow(layout, 18, "Waypoint assistance", autoCopyNext,
-                "Copy the following system automatically after each planned jump.");
-            page.Controls.Add(layout);
-            return page;
+            group.Controls.Add(layout);
+            layout.Tag = group;
+            return layout;
         }
 
         private static void AddOptionRow(TableLayoutPanel layout, int row, string name, Control control, string explanation)
@@ -528,12 +669,15 @@ namespace EliteColonisationSurveyor.Plugin
 
         private void UpdateExplorationOptionState()
         {
-            var enabled = explorationMode.Checked;
-            explorationSource.Enabled = enabled;
-            explorationFilter.Enabled = enabled;
-            explorationBridges.Enabled = enabled;
-            explorationCompleteness.Enabled = enabled && explorationFilter.SelectedIndex == (int)ExplorationFilterMode.BelowCompleteness;
-            explorationKnownBodies.Enabled = enabled && explorationFilter.SelectedIndex == (int)ExplorationFilterMode.AtMostKnownBodies;
+            var completion = surveyMode.SelectedIndex == (int)SurveyMode.CatalogueCompletion;
+            var expedition = surveyMode.SelectedIndex == (int)SurveyMode.FirstDiscoveryExpedition;
+            explorationSource.Enabled = completion;
+            explorationFilter.Enabled = completion;
+            explorationBridges.Enabled = completion;
+            explorationCompleteness.Enabled = completion && explorationFilter.SelectedIndex == (int)ExplorationFilterMode.BelowCompleteness;
+            explorationKnownBodies.Enabled = completion && explorationFilter.SelectedIndex == (int)ExplorationFilterMode.AtMostKnownBodies;
+            expeditionAnchor.Enabled = expedition;
+            importNavRoute.Enabled = expedition;
         }
 
         private TabPage BuildShortlistPage()
