@@ -28,6 +28,58 @@ namespace EliteColonisationSurveyor.Plugin
             }
         }
 
+        public async Task CheckCataloguePresenceAsync(IEnumerable<StarSystem> systems, IProgress<int> progress, CancellationToken token)
+        {
+            var completed = 0;
+            using (var gate = new SemaphoreSlim(6))
+            {
+                var tasks = systems.Select(async system => {
+                    await gate.WaitAsync(token).ConfigureAwait(false);
+                    try
+                    {
+                        var edsmListed = await IsListedInEdsmAsync(system, token).ConfigureAwait(false);
+                        var spanshListed = await IsListedInSpanshAsync(system, token).ConfigureAwait(false);
+                        system.CataloguePresence = !edsmListed.HasValue || !spanshListed.HasValue ? CataloguePresence.Unknown
+                            : edsmListed.Value && spanshListed.Value ? CataloguePresence.EdsmAndSpansh
+                            : edsmListed.Value ? CataloguePresence.EdsmOnly
+                            : spanshListed.Value ? CataloguePresence.SpanshOnly
+                            : CataloguePresence.NotListed;
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch { system.CataloguePresence = CataloguePresence.Unknown; }
+                    finally
+                    {
+                        system.CatalogueLookupAttempted = true;
+                        gate.Release();
+                        progress?.Report(Interlocked.Increment(ref completed));
+                    }
+                });
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<bool?> IsListedInEdsmAsync(StarSystem system, CancellationToken token)
+        {
+            var url = "https://www.edsm.net/api-v1/system?systemName=" + Uri.EscapeDataString(system.Name) + "&showId=1";
+            using (var response = await Http.GetAsync(url, token).ConfigureAwait(false))
+            {
+                if (!response.IsSuccessStatusCode) return response.StatusCode == HttpStatusCode.NotFound ? false : (bool?)null;
+                var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                try {
+                    var row = json.Deserialize<EdsmSystem>(text);
+                    return row != null && !string.IsNullOrWhiteSpace(row.name);
+                }
+                catch { return text.Trim() == "[]" || text.Trim() == "{}" ? false : (bool?)null; }
+            }
+        }
+
+        private static async Task<bool?> IsListedInSpanshAsync(StarSystem system, CancellationToken token)
+        {
+            if (system.SystemAddress <= 0) return null;
+            using (var response = await Http.GetAsync("https://www.spansh.co.uk/api/system/" + system.SystemAddress, token).ConfigureAwait(false))
+                return response.IsSuccessStatusCode ? true : response.StatusCode == HttpStatusCode.NotFound ? false : (bool?)null;
+        }
+
         public async Task<List<StarSystem>> GetSphereAsync(string centre, double radius, CancellationToken token)
         {
             var url = "https://www.edsm.net/api-v1/sphere-systems?systemName=" + Uri.EscapeDataString(centre)
